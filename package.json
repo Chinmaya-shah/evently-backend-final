@@ -1,0 +1,29 @@
+{
+  "name": "evently-backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@openzeppelin/contracts": "^4.9.0",
+    "@sendgrid/mail": "^8.1.5",
+    "bcryptjs": "^3.0.2",
+    "dotenv": "^17.2.0",
+    "ethers": "^6.15.0",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.16.4",
+    "nanoid": "^5.1.5",
+    "node-cron": "^4.2.1",
+    "nodemailer": "^7.0.5"
+  },
+  "devDependencies": {
+    "truffle": "^5.11.5"
+  }
+}
