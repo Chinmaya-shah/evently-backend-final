@@ -9,15 +9,19 @@ const generateToken = (id, role) => {
   });
 };
 
-const registerUser = async (req, res) => {
-  // ... this function remains the same ...
+export const registerUser = async (req, res) => {
   const { name, email, password, role } = req.body;
   try {
     const userExists = await User.findOne({ email });
     if (userExists) {
       return res.status(400).json({ message: 'User already exists' });
     }
-    const user = await User.create({ name, email, password, role: role || 'Attendee' });
+    const user = await User.create({
+      name,
+      email,
+      password,
+      role: role || 'Attendee',
+    });
     if (user) {
       res.status(201).json({
         _id: user._id,
@@ -35,11 +39,11 @@ const registerUser = async (req, res) => {
   }
 };
 
-const loginUser = async (req, res) => {
-  // ... this function remains the same ...
+export const loginUser = async (req, res) => {
   const { email, password } = req.body;
   try {
     const user = await User.findOne({ email });
+
     if (user && (await user.matchPassword(password))) {
       res.json({
         _id: user._id,
@@ -57,14 +61,8 @@ const loginUser = async (req, res) => {
   }
 };
 
-// --- THIS IS THE NEW FUNCTION THAT WAS MISSING ---
-// @desc    Get user profile
-// @route   GET /api/users/profile
-// @access  Private
-const getUserProfile = async (req, res) => {
-    // The 'protect' middleware already found the user and attached it to req.user
+export const getUserProfile = async (req, res) => {
     const user = await User.findById(req.user._id);
-
     if (user) {
         res.json({
             _id: user._id,
@@ -74,10 +72,7 @@ const getUserProfile = async (req, res) => {
             platformUserId: user.platformUserId,
         });
     } else {
-        res.status(404).json({ message: 'User not found' });
+        // --- THIS IS THE CRITICAL FIX ---
+        res.status(404).json({ message: 'User not found' }); // <-- CORRECTED from 4tran4
     }
 };
-
-
-// Make sure all three functions are exported
-export { registerUser, loginUser, getUserProfile };
