@@ -1,97 +1,55 @@
 // services/blockchainService.js
 
 import { ethers } from 'ethers';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
+import EventTicket from '../build/contracts/EventTicket.json' assert { type: 'json' };
+import dotenv from 'dotenv'; // <-- 1. IMPORT the dotenv library
 
+// --- THIS IS THE CRITICAL FIX ---
+// We load the environment variables directly in this file.
+// This ensures they are available before any other code in this file runs.
 dotenv.config();
 
-// --- ES Module equivalent for __dirname ---
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// --- 1. Load Contract Artifacts ---
-const contractArtifactPath = path.resolve(
-  __dirname,
-  '../build/contracts/EventTicket.json'
-);
-const contractArtifact = JSON.parse(fs.readFileSync(contractArtifactPath));
-const contractAbi = contractArtifact.abi;
+// --- Secure Configuration from .env file ---
+const ganacheUrl = process.env.GANACHE_RPC_URL;
+const privateKey = process.env.OWNER_PRIVATE_KEY;
 const contractAddress = process.env.CONTRACT_ADDRESS;
-console.log("Using Contract Address:", contractAddress);
 
-// --- 2. Setup Provider and Wallet ---
-const provider = new ethers.JsonRpcProvider(process.env.GANACHE_RPC_URL);
-const wallet = new ethers.Wallet(process.env.OWNER_PRIVATE_KEY, provider);
+// This safety check will now work correctly.
+if (!ganacheUrl || !privateKey || !contractAddress) {
+  throw new Error("Missing required blockchain environment variables (GANACHE_RPC_URL, OWNER_PRIVATE_KEY, CONTRACT_ADDRESS) in .env file.");
+}
 
-// --- 3. Create Contract Instance ---
-const eventTicketContract = new ethers.Contract(
-  contractAddress,
-  contractAbi,
-  wallet
-);
+// --- Initialize the blockchain connection ---
+const provider = new ethers.JsonRpcProvider(ganacheUrl);
+const wallet = new ethers.Wallet(privateKey, provider);
+const contract = new ethers.Contract(contractAddress, EventTicket.abi, wallet);
 
-console.log('✅ Blockchain Service Initialized: Connected to EventTicket contract.');
 
-// --- 4. Export Service Functions ---
-
-/**
- * Mints a new NFT ticket and assigns it to the attendee.
- * @param {string} attendeeAddress - The wallet address of the ticket buyer.
- * @returns {Promise<number>} The ID of the newly minted token.
- */
+// @desc    Mints a new NFT ticket on the blockchain
 export const mintTicket = async (attendeeAddress) => {
+  console.log(`Minting ticket for attendee: ${attendeeAddress}...`);
   try {
-    console.log(`Minting ticket for attendee: ${attendeeAddress}...`);
-    const tx = await eventTicketContract.mintTicket(attendeeAddress);
-
-    // Wait for the transaction to be mined and get the receipt
-    const receipt = await tx.wait();
-
-    // Find the Transfer event in the transaction logs
-    const transferEvent = receipt.logs.find(log => {
-        try {
-            const parsedLog = eventTicketContract.interface.parseLog(log);
-            return parsedLog?.name === 'Transfer';
-        } catch (error) {
-            // This log might not be from our contract, so we ignore parse errors
-            return false;
-        }
-    });
-
-    if (!transferEvent) {
-      throw new Error('Minting failed, Transfer event not found in logs.');
-    }
-
-    // Parse the found event to get the arguments
-    const parsedLog = eventTicketContract.interface.parseLog(transferEvent);
-    const tokenId = Number(parsedLog.args.tokenId); // Convert BigInt to Number
-
+    const tx = await contract.mintTicket(attendeeAddress);
+    const receipt = await tx.wait(); // Fix for nonce error
+    const tokenId = receipt.logs[0].args[2].toString();
     console.log(`✅ Ticket minted successfully! Token ID: ${tokenId}`);
     return tokenId;
-
   } catch (error) {
     console.error('❌ Error minting ticket:', error);
-    throw error;
+    throw new Error('Blockchain transaction failed.');
   }
 };
 
 
-/**
- * Marks a specific ticket as used on the blockchain.
- * @param {number} tokenId - The ID of the ticket to be marked as used.
- * @returns {Promise<void>}
- */
+// @desc    Marks a ticket as used on the blockchain
 export const markAsUsed = async (tokenId) => {
+  console.log(`Marking token ${tokenId} as used...`);
   try {
-    console.log(`Marking token ${tokenId} as used...`);
-    const tx = await eventTicketContract.markAsUsed(tokenId);
-    await tx.wait(); // Wait for the transaction to be mined
+    const tx = await contract.markAsUsed(tokenId);
+    await tx.wait(); // Fix for nonce error
     console.log(`✅ Token ${tokenId} successfully marked as used.`);
   } catch (error) {
     console.error(`❌ Error marking token ${tokenId} as used:`, error);
-    throw error;
+    throw new Error('Blockchain transaction failed while marking token as used.');
   }
 };
