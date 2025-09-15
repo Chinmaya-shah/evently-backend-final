@@ -1,34 +1,42 @@
 // routes/eventRoutes.js
 
 import express from 'express';
-// 1. IMPORT THE CORRECT FUNCTION NAME: getEvents
+// Import all the controller functions we need for these routes
 import {
     createEvent,
     getEvents,
     getEventById,
     updateEvent,
     deleteEvent,
-    getEventAnalytics
+    getEventAnalytics,
+    getMyEvents // Import the new function
 } from '../controllers/eventController.js';
 import { protect, isOrganizer } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// --- Public Routes ---
-router.route('/')
-    .get(getEvents) // 2. USE THE CORRECT FUNCTION NAME
-    .post(protect, isOrganizer, createEvent);
+// --- ORGANIZER-SPECIFIC ROUTES ---
 
-// --- Routes for a specific event by ID ---
-router.route('/:id')
-    .get(getEventById)
-    .put(protect, isOrganizer, updateEvent)
-    .delete(protect, isOrganizer, deleteEvent);
+// This new route fetches only the events created by the logged-in organizer.
+// It must come before the '/:id' route to be matched correctly.
+router.get('/myevents', protect, isOrganizer, getMyEvents);
 
-// --- Analytics Route ---
+// This route allows an organizer to get analytics for one of their events.
 router.route('/:id/analytics')
     .get(protect, isOrganizer, getEventAnalytics);
 
-// 3. THE DUPLICATE ROUTE HAS BEEN REMOVED.
+
+// --- GENERAL EVENT ROUTES ---
+
+// Routes for the main events collection
+router.route('/')
+    .get(getEvents) // Anyone can get the list of all events
+    .post(protect, isOrganizer, createEvent); // Only an organizer can create an event
+
+// Routes for a specific event by its ID
+router.route('/:id')
+    .get(getEventById) // Anyone can get details for a single event
+    .put(protect, isOrganizer, updateEvent) // Only an organizer can update an event
+    .delete(protect, isOrganizer, deleteEvent); // Only an organizer can delete an event
 
 export default router;
