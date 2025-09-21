@@ -6,11 +6,10 @@ dotenv.config();
 
 import express from 'express';
 import connectDB from './config/db.js';
+import cors from 'cors'; // <-- 1. IMPORT THE NEW CORS LIBRARY
 
-// Import our new reservation service
+// Import our new reservation service and all the route files
 import { startReservationFinalizer } from './services/reservationService.js';
-
-// Import routes
 import eventRoutes from './routes/eventRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import ticketRoutes from './routes/ticketRoutes.js';
@@ -23,10 +22,13 @@ const app = express();
 // Enable the server to accept JSON in the body of requests
 app.use(express.json());
 
+// --- THIS IS THE CRITICAL FIX ---
+// This tells our server to accept requests from any origin,
+// which will solve the "Failed to fetch" error from our local HTML file.
+app.use(cors());
 
 // --- START THE AUTOMATED BACKGROUND JOB ---
 startReservationFinalizer();
-
 
 // --- API Routes ---
 app.get('/', (req, res) => {
