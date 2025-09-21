@@ -3,61 +3,49 @@
 import User from '../models/userModel.js';
 import jwt from 'jsonwebtoken';
 
+// Helper function to generate a JWT
 const generateToken = (id, role) => {
-  return jwt.sign({ id, role }, process.env.JWT_SECRET, {
-    expiresIn: '30d',
-  });
-};
-
-export const registerUser = async (req, res) => {
-  const { name, email, password, role } = req.body;
-  try {
-    const userExists = await User.findOne({ email });
-    if (userExists) {
-      return res.status(400).json({ message: 'User already exists' });
-    }
-    const user = await User.create({
-      name,
-      email,
-      password,
-      role: role || 'Attendee',
+    return jwt.sign({ id, role }, process.env.JWT_SECRET, {
+        expiresIn: '30d',
     });
-    if (user) {
-      res.status(201).json({
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        platformUserId: user.platformUserId,
-        token: generateToken(user._id, user.role),
-      });
-    } else {
-      res.status(400).json({ message: 'Invalid user data' });
-    }
-  } catch (error) {
-    res.status(500).json({ message: 'Server Error' });
-  }
 };
 
+// @desc    Register a new user
+// @route   POST /api/users/register
+// @access  Public
+export const registerUser = async (req, res) => {
+    const { name, email, password, role } = req.body;
+    try {
+        const userExists = await User.findOne({ email });
+        if (userExists) {
+            return res.status(400).json({ message: 'User already exists' });
+        }
+        const user = await User.create({ name, email, password, role: role || 'Attendee' });
+        if (user) {
+            res.status(201).json({
+                _id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                platformUserId: user.platformUserId,
+                token: generateToken(user._id, user.role),
+            });
+        } else {
+            res.status(400).json({ message: 'Invalid user data' });
+        }
+    } catch (error) {
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+// @desc    Auth user & get token
+// @route   POST /api/users/login
+// @access  Public
 export const loginUser = async (req, res) => {
-  const { email, password } = req.body;
-  try {
-    // --- START OF DIAGNOSTIC LOGS ---
-    console.log("--- LOGIN ATTEMPT ---");
-    console.log(`1. Attempting login for email: ${email}`);
-
-    const user = await User.findOne({ email });
-
-    if (user) {
-        console.log(`2. User found in database. Hashed password is: ${user.password}`);
-
-        // This is the password comparison
-        const isMatch = await user.matchPassword(password);
-        console.log(`3. Password comparison result (isMatch): ${isMatch}`); // This should be true
-
-        if (isMatch) {
-            console.log("4. Login successful! Sending token.");
-            console.log("--------------------");
+    const { email, password } = req.body;
+    try {
+        const user = await User.findOne({ email });
+        if (user && (await user.matchPassword(password))) {
             res.json({
                 _id: user._id,
                 name: user.name,
@@ -67,33 +55,73 @@ export const loginUser = async (req, res) => {
                 token: generateToken(user._id, user.role),
             });
         } else {
-            console.log("4. Login FAILED: Passwords do not match.");
-            console.log("--------------------");
             res.status(401).json({ message: 'Invalid email or password' });
         }
-    } else {
-        console.log("2. Login FAILED: User not found in database.");
-        console.log("--------------------");
-        res.status(401).json({ message: 'Invalid email or password' });
+    } catch (error) {
+        res.status(500).json({ message: 'Server Error' });
     }
-    // --- END OF DIAGNOSTIC LOGS ---
-  } catch (error) {
-    console.error("CRITICAL ERROR in loginUser function:", error);
-    res.status(500).json({ message: 'Server Error' });
-  }
 };
 
+// @desc    Get user profile
+// @route   GET /api/users/profile
+// @access  Private
 export const getUserProfile = async (req, res) => {
     const user = await User.findById(req.user._id);
     if (user) {
+        // We now return the new verification and activation statuses
         res.json({
             _id: user._id,
             name: user.name,
             email: user.email,
             role: user.role,
             platformUserId: user.platformUserId,
+            isVerified: user.isVerified,
+            isCardActivated: user.isCardActivated,
         });
     } else {
         res.status(404).json({ message: 'User not found' });
+    }
+};
+
+// --- THIS IS THE NEW FUNCTION FOR KYC SUBMISSION ---
+// @desc    Submit KYC data for the logged-in user
+// @route   POST /api/users/submit-kyc
+// @access  Private
+export const submitKyc = async (req, res) => {
+    try {
+        // Find the user by the ID that our 'protect' middleware provides.
+        const user = await User.findById(req.user._id);
+
+        if (user) {
+            // Get the KYC data from the request body.
+            const { fullName, address, governmentId } = req.body;
+
+            // Update the user's document with the new information.
+            user.kyc.fullName = fullName || user.kyc.fullName;
+            user.kyc.address = address || user.kyc.address;
+            user.kyc.governmentId = governmentId || user.kyc.governmentId;
+
+            // For our V1.0, we will automatically mark the user as verified upon submission.
+            user.isVerified = true;
+
+            // Save the updated user to the database.
+            const updatedUser = await user.save();
+
+            // Send back the complete, updated profile.
+            res.json({
+                _id: updatedUser._id,
+                name: updatedUser.name,
+                email: updatedUser.email,
+                role: updatedUser.role,
+                platformUserId: updatedUser.platformUserId,
+                isVerified: updatedUser.isVerified,
+                isCardActivated: updatedUser.isCardActivated,
+            });
+        } else {
+            res.status(404).json({ message: 'User not found' });
+        }
+    } catch (error) {
+        console.error('KYC Submission Error:', error);
+        res.status(400).json({ message: 'Invalid KYC data provided' });
     }
 };
