@@ -19,10 +19,12 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  // --- THIS IS THE CRITICAL CHANGE ---
+  // We have added 'SuperAdmin' to the list of allowed roles.
   role: {
     type: String,
     required: true,
-    enum: ['Attendee', 'Organizer', 'Admin'],
+    enum: ['Attendee', 'Organizer', 'Admin', 'SuperAdmin'], // <-- 'SuperAdmin' is now a valid role
     default: 'Attendee',
   },
   platformUserId: {
@@ -32,31 +34,22 @@ const userSchema = new mongoose.Schema({
     default: () => nanoid(16),
   },
 
-  // --- THESE ARE THE NEW, HIGH-SECURITY FIELDS ---
-
-  // KYC (Know Your Customer) Information
-  // In a real production app, this sensitive data would be encrypted at rest.
+  // All our previous high-security fields remain the same
   kyc: {
     fullName: { type: String, default: '' },
     address: { type: String, default: '' },
-    governmentId: { type: String, default: '' }, // e.g., Aadhaar number
+    governmentId: { type: String, default: '' },
   },
-
-  // Verification Status
   isVerified: {
     type: Boolean,
     required: true,
-    default: false, // A new user is NOT verified by default.
+    default: false,
   },
-
-  // NFC Card Activation Status (The "One-Time Lock")
   isCardActivated: {
     type: Boolean,
     required: true,
-    default: false, // A new user does NOT have an active card by default.
+    default: false,
   },
-
-  // This will store the UID of the physical card or a reference to the phone's virtual card.
   activeCardId: {
     type: String,
     default: '',

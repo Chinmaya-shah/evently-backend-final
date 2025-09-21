@@ -3,33 +3,45 @@
 import express from 'express';
 const router = express.Router();
 
-// Import the security middleware that checks if a user is logged in
-import { protect } from '../middleware/authMiddleware.js';
+// We need both 'protect' (for logged-in users) and 'isAdmin' for our new admin-only routes
+import { protect, isAdmin } from '../middleware/authMiddleware.js';
 
-// Import all controller functions, including the new 'submitKyc'
+// Import all controller functions, including our new ones for the admin and kiosk flow
 import {
   registerUser,
   loginUser,
   getUserProfile,
-  submitKyc // <-- Import the new function
+  submitKyc,
+  findUserForAdmin,
+  prepareActivation,
+  getIdForKiosk,
+  confirmActivation
 } from '../controllers/authController.js';
 
 
-// --- Public Routes ---
-// A user does not need to be logged in to register or log in.
+// --- PUBLIC AUTH ROUTES ---
+// A user does not need to be logged in to access these.
 router.post('/register', registerUser);
 router.post('/login', loginUser);
 
 
-// --- Protected Routes ---
-// A user MUST be logged in to access these routes. The 'protect' middleware enforces this.
-
-// This route allows a logged-in user to fetch their own profile data.
+// --- PROTECTED USER ROUTES ---
+// A user MUST be logged in to access these routes.
 router.get('/profile', protect, getUserProfile);
-
-// THIS IS THE NEW ROUTE for submitting KYC data.
-// It is protected to ensure a user can only submit KYC for their own account.
 router.post('/submit-kyc', protect, submitKyc);
+
+
+// --- NEW ADMIN & KIOSK ROUTES ---
+
+// This new route allows a logged-in Admin to search for any user by their email.
+router.get('/admin/find', protect, isAdmin, findUserForAdmin);
+
+// This route is for the admin web portal to generate a one-time code. It is admin-only.
+router.post('/prepare-activation', protect, isAdmin, prepareActivation);
+
+// These two routes are for the Arduino Kiosk. They are public but secured by the short-lived, one-time code.
+router.post('/kiosk/get-id', getIdForKiosk);
+router.post('/kiosk/confirm-activation', confirmActivation);
 
 
 export default router;

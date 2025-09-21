@@ -3,44 +3,44 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/userModel.js';
 
-const protect = async (req, res, next) => {
-  let token;
-
-  // Check if the request has an Authorization header, and if it starts with 'Bearer'
-  if (
-    req.headers.authorization &&
-    req.headers.authorization.startsWith('Bearer')
-  ) {
-    try {
-      // Get token from header (e.g., "Bearer <token>")
-      token = req.headers.authorization.split(' ')[1];
-
-      // Verify the token using the secret key
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-      // Find the user by the ID from the token and attach it to the request object
-      // We exclude the password field for security
-      req.user = await User.findById(decoded.id).select('-password');
-
-      next(); // Move on to the next function (the controller)
-    } catch (error) {
-      console.error(error);
-      res.status(401).json({ message: 'Not authorized, token failed' });
+// This function checks if a user is logged in
+export const protect = async (req, res, next) => {
+    let token;
+    if (
+        req.headers.authorization &&
+        req.headers.authorization.startsWith('Bearer')
+    ) {
+        try {
+            token = req.headers.authorization.split(' ')[1];
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            req.user = await User.findById(decoded.id).select('-password');
+            next();
+        } catch (error) {
+            console.error(error);
+            res.status(401).json({ message: 'Not authorized, token failed' });
+        }
     }
-  }
-
-  if (!token) {
-    res.status(401).json({ message: 'Not authorized, no token' });
-  }
+    if (!token) {
+        res.status(401).json({ message: 'Not authorized, no token' });
+    }
 };
 
-const isOrganizer = (req, res, next) => {
-    // Check if the user object exists and if their role is Organizer or Admin
+// --- THIS IS THE CRITICAL FIX ---
+// We are adding the missing 'isAdmin' function.
+// This function checks if the logged-in user (provided by 'protect') has the 'Admin' role.
+export const isAdmin = (req, res, next) => {
+    if (req.user && req.user.role === 'Admin') {
+        next(); // If they are an Admin, proceed to the next step
+    } else {
+        res.status(403).json({ message: 'Not authorized as an admin' });
+    }
+};
+
+// This function is used by the organizer-specific routes
+export const isOrganizer = (req, res, next) => {
     if (req.user && (req.user.role === 'Organizer' || req.user.role === 'Admin')) {
-        next(); // User is an organizer, proceed
+        next();
     } else {
         res.status(403).json({ message: 'Not authorized, an Organizer role is required' });
     }
 };
-
-export { protect, isOrganizer };

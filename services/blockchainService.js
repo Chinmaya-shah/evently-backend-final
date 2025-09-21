@@ -1,7 +1,7 @@
 // services/blockchainService.js
 
 import { ethers } from 'ethers';
-import EventTicket from '../build/contracts/EventTicket.json' assert { type: 'json' };
+import EventTicket from '../build/contracts/EventTicket.json' with { type: 'json' };
 import dotenv from 'dotenv'; // <-- 1. IMPORT the dotenv library
 
 // --- THIS IS THE CRITICAL FIX ---
