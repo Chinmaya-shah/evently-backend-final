@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Evently - Card Activation Portal</title>
+    <title>Evently - Admin Portal</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -11,17 +11,18 @@
     <style>
         body { font-family: 'Inter', sans-serif; }
         .btn-primary { background-color: #FFFFFF; color: #000000; }
-        .btn-secondary { background-color: #1E1E1E; color: #FFFFFF; }
+        .btn-secondary { background-color: #333333; color: #FFFFFF; }
         .form-input { background-color: #1E1E1E; border-color: #333333; color: #FFFFFF; }
+        select.form-input { appearance: none; }
     </style>
 </head>
-<body class="bg-black text-white flex items-center justify-center min-h-screen">
+<body class="bg-black text-white flex items-center justify-center min-h-screen p-4">
 
-<div class="w-full max-w-md p-8 space-y-6 bg-[#121212] rounded-xl shadow-lg">
+<div id="portal-container" class="w-full max-w-4xl p-8 space-y-6 bg-[#121212] rounded-xl shadow-lg">
 
     <!-- Login Section -->
-    <div id="login-section">
-        <h2 class="text-2xl font-bold text-center">Admin Portal Login</h2>
+    <div id="login-section" class="max-w-md mx-auto">
+        <h2 class="text-3xl font-bold text-center">Evently Admin Portal</h2>
         <div class="space-y-4 mt-6">
             <input id="admin-email" type="email" placeholder="Admin Email" class="w-full px-4 py-3 rounded-lg form-input focus:outline-none focus:ring-2 focus:ring-white">
             <input id="admin-password" type="password" placeholder="Password" class="w-full px-4 py-3 rounded-lg form-input focus:outline-none focus:ring-2 focus:ring-white">
@@ -31,21 +32,36 @@
 
     <!-- Main Portal Section (hidden by default) -->
     <div id="portal-section" class="hidden">
-        <h2 class="text-2xl font-bold text-center">Card Activation</h2>
-        <div class="space-y-4 mt-6">
-            <input id="user-email" type="email" placeholder="Search Attendee by Email" class="w-full px-4 py-3 rounded-lg form-input focus:outline-none focus:ring-2 focus:ring-white">
-            <button id="search-btn" class="w-full py-3 rounded-lg btn-secondary font-bold transition-transform transform active:scale-95">Search User</button>
-        </div>
-
-        <!-- User Info and Activation Code Display -->
-        <div id="user-info" class="hidden mt-6 p-4 bg-[#1E1E1E] rounded-lg text-center space-y-2">
-            <p>User: <span id="user-name" class="font-bold"></span></p>
-            <p>Status: <span id="user-status" class="font-bold"></span></p>
-            <button id="prepare-btn" class="w-full py-3 rounded-lg btn-primary font-bold mt-2 transition-transform transform active:scale-95" disabled>Prepare for Activation</button>
-            <div id="code-display" class="hidden mt-4">
-                <p class="text-gray-400">Enter this code into the Arduino Kiosk:</p>
-                <p id="one-time-code" class="text-4xl font-mono tracking-widest my-2"></p>
-                <p id="timer" class="text-sm text-gray-500"></p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <!-- Card Activation Column -->
+            <div>
+                <h2 class="text-2xl font-bold text-center mb-6">Card Activation</h2>
+                <div class="space-y-4">
+                    <input id="user-email" type="email" placeholder="Search Attendee by Email" class="w-full px-4 py-3 rounded-lg form-input focus:outline-none focus:ring-2 focus:ring-white">
+                    <button id="search-btn" class="w-full py-3 rounded-lg btn-secondary font-bold transition-transform transform active:scale-95">Search User</button>
+                </div>
+                <div id="user-info" class="hidden mt-6 p-4 bg-[#1E1E1E] rounded-lg text-center space-y-2">
+                    <p>User: <span id="user-name" class="font-bold"></span></p>
+                    <p>Status: <span id="user-status" class="font-bold"></span></p>
+                    <button id="prepare-btn" class="w-full py-3 rounded-lg btn-primary font-bold mt-2 transition-transform transform active:scale-95 disabled:bg-gray-500" disabled>Prepare for Activation</button>
+                    <div id="code-display" class="hidden mt-4">
+                        <p class="text-gray-400">Enter this code into the Kiosk:</p>
+                        <p id="one-time-code" class="text-4xl font-mono tracking-widest my-2"></p>
+                        <p id="timer" class="text-sm text-gray-500"></p>
+                    </div>
+                </div>
+            </div>
+            <!-- Gate Management Column -->
+            <div>
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-2xl font-bold text-center">Gate Management</h2>
+                    <button id="refresh-gates-btn" class="p-2 rounded-full hover:bg-[#1E1E1E] transition" title="Refresh Gate List">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M20 4h-5v5M4 20h5v-5"/></svg>
+                    </button>
+                </div>
+                <div id="gate-list" class="space-y-4 max-h-96 overflow-y-auto pr-2">
+                    <!-- Gate items will be injected here by JavaScript -->
+                </div>
             </div>
         </div>
     </div>
@@ -53,7 +69,8 @@
 </div>
 
 <script>
-    const API_URL = 'http://localhost:5000/api/users';
+    // --- CONFIG ---
+    const API_BASE_URL = 'http://localhost:5000/api';
     let adminToken = null;
     let foundUserId = null;
     let countdownInterval = null;
@@ -65,6 +82,7 @@
     const codeDisplayDiv = document.getElementById('code-display');
     const messageArea = document.getElementById('message-area');
     const prepareBtn = document.getElementById('prepare-btn');
+    const gateListDiv = document.getElementById('gate-list');
 
     // --- Helper to show messages ---
     const showMessage = (text, isError = false) => {
@@ -73,15 +91,13 @@
     };
 
     // --- Event Listeners ---
-
-    // Login Logic
     document.getElementById('login-btn').addEventListener('click', async () => {
         const email = document.getElementById('admin-email').value;
         const password = document.getElementById('admin-password').value;
         showMessage('');
 
         try {
-            const res = await fetch(`${API_URL}/login`, {
+            const res = await fetch(`${API_BASE_URL}/users/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, password })
@@ -94,12 +110,12 @@
             adminToken = data.token;
             loginSection.classList.add('hidden');
             portalSection.classList.remove('hidden');
+            await fetchAndRenderGates();
         } catch (err) {
             showMessage(err.message, true);
         }
     });
 
-    // Search User Logic
     document.getElementById('search-btn').addEventListener('click', async () => {
         const email = document.getElementById('user-email').value;
         showMessage('');
@@ -108,7 +124,7 @@
         if (!email) return showMessage('Please enter an email to search.', true);
 
         try {
-            const res = await fetch(`${API_URL}/admin/find?email=${encodeURIComponent(email)}`, {
+            const res = await fetch(`${API_BASE_URL}/users/admin/find?email=${encodeURIComponent(email)}`, {
                 headers: { 'Authorization': `Bearer ${adminToken}` }
             });
             const user = await res.json();
@@ -136,13 +152,12 @@
         }
     });
 
-    // Prepare Activation Logic
     prepareBtn.addEventListener('click', async () => {
         showMessage('');
         prepareBtn.disabled = true;
 
         try {
-            const res = await fetch(`${API_URL}/prepare-activation`, {
+            const res = await fetch(`${API_BASE_URL}/users/prepare-activation`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -175,6 +190,79 @@
             prepareBtn.disabled = false;
         }
     });
+
+    // --- NEW GATE MANAGEMENT LOGIC ---
+    const fetchAndRenderGates = async () => {
+        if (!adminToken) return;
+        gateListDiv.innerHTML = '<p class="text-gray-500 text-center">Loading gates...</p>';
+        try {
+            const [gatesRes, eventsRes] = await Promise.all([
+                fetch(`${API_BASE_URL}/gates`, { headers: { 'Authorization': `Bearer ${adminToken}` } }),
+                fetch(`${API_BASE_URL}/events`, { headers: { 'Authorization': `Bearer ${adminToken}` } })
+            ]);
+
+            if (!gatesRes.ok) throw new Error('Failed to fetch gates.');
+            if (!eventsRes.ok) throw new Error('Failed to fetch events.');
+
+            const gates = await gatesRes.json();
+            const events = await eventsRes.json();
+
+            gateListDiv.innerHTML = '';
+
+            if (gates.length === 0) {
+                gateListDiv.innerHTML = '<p class="text-gray-500 text-center">No gates have registered yet.</p>';
+                return;
+            }
+
+            gates.forEach(gate => {
+                const gateElement = document.createElement('div');
+                gateElement.className = 'p-4 bg-[#1E1E1E] rounded-lg flex items-center justify-between';
+
+                let eventOptions = '<option value="">-- Unassign --</option>';
+                events.forEach(event => {
+                    const isSelected = gate.activeEvent?._id === event._id;
+                    eventOptions += `<option value="${event._id}" ${isSelected ? 'selected' : ''}>${event.name}</option>`;
+                });
+
+                gateElement.innerHTML = `
+                        <div>
+                            <p class="font-bold">${gate.name}</p>
+                            <p class="text-sm text-gray-400">${gate.macAddress}</p>
+                        </div>
+                        <div class="flex items-center">
+                            <select id="event-select-${gate._id}" class="form-input rounded-lg py-2 px-3 mr-2 text-sm">
+                                ${eventOptions}
+                            </select>
+                            <button onclick="assignEventToGate('${gate._id}')" class="px-4 py-2 rounded-lg btn-secondary font-bold text-sm transition-transform transform active:scale-95">Assign</button>
+                        </div>
+                    `;
+                gateListDiv.appendChild(gateElement);
+            });
+        } catch (err) {
+            gateListDiv.innerHTML = `<p class="text-red-500 text-center">${err.message}</p>`;
+        }
+    };
+
+    // This function needs to be on the global window object to be called by onclick
+    window.assignEventToGate = async (gateId) => {
+        const selectElement = document.getElementById(`event-select-${gateId}`);
+        const eventId = selectElement.value;
+        showMessage('');
+        try {
+            const res = await fetch(`${API_BASE_URL}/gates/${gateId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+                body: JSON.stringify({ activeEventId: eventId || null })
+            });
+            if (!res.ok) throw new Error('Failed to assign event.');
+            showMessage('Event assigned to gate successfully!', false);
+            await fetchAndRenderGates();
+        } catch (err) {
+            showMessage(err.message, true);
+        }
+    };
+
+    document.getElementById('refresh-gates-btn').addEventListener('click', fetchAndRenderGates);
 </script>
 </body>
 </html>
