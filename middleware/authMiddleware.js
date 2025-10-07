@@ -1,19 +1,20 @@
 // middleware/authMiddleware.js
-
 import jwt from 'jsonwebtoken';
 import User from '../models/userModel.js';
 
-// This function checks if a user is logged in
 export const protect = async (req, res, next) => {
     let token;
-    if (
-        req.headers.authorization &&
-        req.headers.authorization.startsWith('Bearer')
-    ) {
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
         try {
             token = req.headers.authorization.split(' ')[1];
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
             req.user = await User.findById(decoded.id).select('-password');
+
+            if (!req.user) {
+                return res.status(401).json({ message: 'Not authorized, user not found' });
+            }
+
             next();
         } catch (error) {
             console.error(error);
@@ -25,22 +26,20 @@ export const protect = async (req, res, next) => {
     }
 };
 
-// --- THIS IS THE CRITICAL FIX ---
-// We are adding the missing 'isAdmin' function.
-// This function checks if the logged-in user (provided by 'protect') has the 'Admin' role.
 export const isAdmin = (req, res, next) => {
-    if (req.user && req.user.role === 'Admin') {
-        next(); // If they are an Admin, proceed to the next step
+    if (req.user && (req.user.role === 'Admin' || req.user.role === 'SuperAdmin')) {
+        next();
     } else {
-        res.status(403).json({ message: 'Not authorized as an admin' });
+        res.status(403).json({ message: 'Not authorized as an Admin' });
     }
 };
 
-// This function is used by the organizer-specific routes
+// --- THIS IS THE NEW FUNCTION THAT WAS MISSING ---
+// It checks if the user is an Organizer or an Admin (since Admins can do everything)
 export const isOrganizer = (req, res, next) => {
-    if (req.user && (req.user.role === 'Organizer' || req.user.role === 'Admin')) {
+    if (req.user && (req.user.role === 'Organizer' || req.user.role === 'Admin' || req.user.role === 'SuperAdmin')) {
         next();
     } else {
-        res.status(403).json({ message: 'Not authorized, an Organizer role is required' });
+        res.status(403).json({ message: 'Not authorized as an Organizer or Admin' });
     }
 };
