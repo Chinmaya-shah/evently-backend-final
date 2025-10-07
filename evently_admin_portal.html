@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Evently - Admin Portal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .btn-primary { background-color: #FFFFFF; color: #000000; }
+        .btn-secondary { background-color: #333333; color: #FFFFFF; }
+        .form-input { background-color: #1E1E1E; border-color: #333333; color: #FFFFFF; }
+        select.form-input { appearance: none; }
+    </style>
+</head>
+<body class="bg-black text-white flex items-center justify-center min-h-screen p-4">
+
+<div id="portal-container" class="w-full max-w-4xl p-8 space-y-6 bg-[#121212] rounded-xl shadow-lg">
+
+    <!-- Login Section -->
+    <div id="login-section" class="max-w-md mx-auto">
+        <h2 class="text-3xl font-bold text-center">Evently Admin Portal</h2>
+        <div class="space-y-4 mt-6">
+            <input id="admin-email" type="email" placeholder="Admin Email" class="w-full px-4 py-3 rounded-lg form-input focus:outline-none focus:ring-2 focus:ring-white">
+            <input id="admin-password" type="password" placeholder="Password" class="w-full px-4 py-3 rounded-lg form-input focus:outline-none focus:ring-2 focus:ring-white">
+            <button id="login-btn" class="w-full py-3 rounded-lg btn-primary font-bold transition-transform transform active:scale-95">Login</button>
+        </div>
+    </div>
+
+    <!-- Main Portal Section (hidden by default) -->
+    <div id="portal-section" class="hidden">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <!-- Column 1: Card Activation -->
+            <div>
+                <h2 class="text-2xl font-bold text-center mb-6">Card Activation</h2>
+                <div class="space-y-4">
+                    <input id="user-email" type="email" placeholder="Search Attendee by Email" class="w-full px-4 py-3 rounded-lg form-input focus:outline-none focus:ring-2 focus:ring-white">
+                    <button id="search-btn" class="w-full py-3 rounded-lg btn-secondary font-bold transition-transform transform active:scale-95">Search User</button>
+                </div>
+                <div id="user-info" class="hidden mt-6 p-4 bg-[#1E1E1E] rounded-lg text-center space-y-2">
+                    <p>User: <span id="user-name" class="font-bold"></span></p>
+                    <p>Status: <span id="user-status" class="font-bold"></span></p>
+                    <button id="prepare-btn" class="w-full py-3 rounded-lg btn-primary font-bold mt-2 transition-transform transform active:scale-95 disabled:bg-gray-500" disabled>Prepare for Activation</button>
+                    <div id="code-display" class="hidden mt-4">
+                        <p class="text-gray-400">Enter this code into the Kiosk:</p>
+                        <p id="one-time-code" class="text-4xl font-mono tracking-widest my-2"></p>
+                        <p id="timer" class="text-sm text-gray-500"></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Column 2: Gate Management -->
+            <div>
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-2xl font-bold">Device Management</h2>
+                    <button id="refresh-btn" class="p-2 rounded-full hover:bg-[#1E1E1E] transition" title="Refresh Device List">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M20 4h-5v5M4 20h5v-5"/></svg>
+                    </button>
+                </div>
+                <div id="device-list" class="space-y-4 max-h-96 overflow-y-auto pr-2">
+                    <!-- Device items will be injected here by JavaScript -->
+                </div>
+            </div>
+        </div>
+    </div>
+    <p id="message-area" class="text-center mt-4 h-6"></p>
+</div>
+
+<script>
+    const API_BASE_URL = 'http://localhost:5000/api';
+    let adminToken = null;
+    let foundUser = null;
+    let timerInterval = null;
+
+    const loginSection = document.getElementById('login-section');
+    const portalSection = document.getElementById('portal-section');
+    const messageArea = document.getElementById('message-area');
+
+    const userInfoDiv = document.getElementById('user-info');
+    const userNameSpan = document.getElementById('user-name');
+    const userStatusSpan = document.getElementById('user-status');
+    const prepareBtn = document.getElementById('prepare-btn');
+    const codeDisplayDiv = document.getElementById('code-display');
+    const oneTimeCodeP = document.getElementById('one-time-code');
+    const timerP = document.getElementById('timer');
+
+    const deviceListDiv = document.getElementById('device-list');
+
+    const showMessage = (text, isError = false) => {
+        messageArea.textContent = text;
+        messageArea.className = `text-center mt-4 h-6 ${isError ? 'text-red-500' : 'text-green-500'}`;
+    };
+
+    const fetchAndRenderDevices = async () => {
+        if (!adminToken) return;
+        deviceListDiv.innerHTML = '<p class="text-gray-500 text-center">Loading devices...</p>';
+        try {
+            const [gatesRes, eventsRes] = await Promise.all([
+                fetch(`${API_BASE_URL}/gates`, { headers: { 'Authorization': `Bearer ${adminToken}` } }),
+                fetch(`${API_BASE_URL}/events`, { headers: { 'Authorization': `Bearer ${adminToken}` } })
+            ]);
+
+            if (!gatesRes.ok) throw new Error('Failed to fetch devices.');
+            if (!eventsRes.ok) throw new Error('Failed to fetch events.');
+
+            const gates = await gatesRes.json();
+            const events = await eventsRes.json();
+            deviceListDiv.innerHTML = '';
+
+            if (gates.length === 0) {
+                deviceListDiv.innerHTML = '<p class="text-gray-500 text-center">No devices have registered yet.</p>';
+                return;
+            }
+
+            gates.forEach(gate => {
+                const gateElement = document.createElement('div');
+                gateElement.className = 'p-4 bg-[#1E1E1E] rounded-lg space-y-4';
+
+                const eventOptions = ['<option value="">-- Unassign Event --</option>', ...events.map(event =>
+                    `<option value="${event._id}" ${gate.activeEvent?._id === event._id ? 'selected' : ''}>${event.name}</option>`
+                )].join('');
+
+                const modeOptions = ['activation', 'validation', 'cloner'].map(mode =>
+                    `<option value="${mode}" ${gate.mode === mode ? 'selected' : ''}>${mode.charAt(0).toUpperCase() + mode.slice(1)}</option>`
+                ).join('');
+
+                gateElement.innerHTML = `
+                        <div>
+                            <p class="font-bold text-lg">${gate.name}</p>
+                            <p class="text-sm text-gray-400">${gate.macAddress}</p>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="text-xs text-gray-400">Assign Event</label>
+                                <select id="event-select-${gate._id}" class="w-full mt-1 form-input rounded-lg py-2 px-3 text-sm">${eventOptions}</select>
+                            </div>
+                            <div>
+                                <label class="text-xs text-gray-400">Set Mode</label>
+                                <select id="mode-select-${gate._id}" class="w-full mt-1 form-input rounded-lg py-2 px-3 text-sm">${modeOptions}</select>
+                            </div>
+                        </div>
+                        <button onclick="updateDevice('${gate._id}')" class="w-full mt-2 px-4 py-2 rounded-lg btn-secondary font-bold text-sm transition-transform transform active:scale-95">Save Changes</button>
+                    `;
+                deviceListDiv.appendChild(gateElement);
+            });
+        } catch (err) {
+            deviceListDiv.innerHTML = `<p class="text-red-500 text-center">${err.message}</p>`;
+        }
+    };
+
+    window.updateDevice = async (gateId) => {
+        const eventSelect = document.getElementById(`event-select-${gateId}`);
+        const modeSelect = document.getElementById(`mode-select-${gateId}`);
+        const eventId = eventSelect.value;
+        const mode = modeSelect.value;
+
+        showMessage('');
+        try {
+            await fetch(`${API_BASE_URL}/gates/${gateId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+                body: JSON.stringify({ activeEventId: eventId || null })
+            });
+            await fetch(`${API_BASE_URL}/gates/${gateId}/set-mode`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+                body: JSON.stringify({ mode })
+            });
+            showMessage('Device updated successfully!', false);
+            await fetchAndRenderDevices();
+        } catch (err) {
+            showMessage('Failed to update device.', true);
+        }
+    };
+
+    document.getElementById('search-btn').addEventListener('click', async () => {
+        const email = document.getElementById('user-email').value;
+        if (!email) return showMessage('Please enter an email to search.', true);
+        showMessage('');
+        userInfoDiv.classList.add('hidden');
+        foundUser = null;
+        try {
+            const res = await fetch(`${API_BASE_URL}/users/admin/find?email=${email}`, { headers: { 'Authorization': `Bearer ${adminToken}` } });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message);
+
+            foundUser = data;
+            userNameSpan.textContent = foundUser.name;
+            let statusText = '';
+            if (foundUser.isCardActivated) {
+                statusText = 'Card Already Activated';
+                prepareBtn.disabled = true;
+            } else if (!foundUser.isVerified) {
+                statusText = 'Not KYC Verified';
+                prepareBtn.disabled = true;
+            } else {
+                statusText = 'Ready for Activation';
+                prepareBtn.disabled = false;
+            }
+            userStatusSpan.textContent = statusText;
+            userInfoDiv.classList.remove('hidden');
+        } catch (err) {
+            showMessage(err.message, true);
+        }
+    });
+
+    prepareBtn.addEventListener('click', async () => {
+        if (!foundUser) return;
+        showMessage('');
+        prepareBtn.disabled = true;
+        try {
+            const res = await fetch(`${API_BASE_URL}/users/prepare-activation`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+                body: JSON.stringify({ userId: foundUser._id })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message);
+
+            oneTimeCodeP.textContent = data.oneTimeCode;
+            codeDisplayDiv.classList.remove('hidden');
+
+            let timeLeft = 60;
+            timerP.textContent = `Code expires in ${timeLeft} seconds.`;
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                timerP.textContent = `Code expires in ${timeLeft} seconds.`;
+                if (timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    codeDisplayDiv.classList.add('hidden');
+                    prepareBtn.disabled = false;
+                    showMessage('Activation code expired.', true);
+                }
+            }, 1000);
+        } catch (err) {
+            showMessage(err.message, true);
+            prepareBtn.disabled = false;
+        }
+    });
+
+    document.getElementById('login-btn').addEventListener('click', async () => {
+        const email = document.getElementById('admin-email').value;
+        const password = document.getElementById('admin-password').value;
+        showMessage('');
+        try {
+            const res = await fetch(`${API_BASE_URL}/users/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+            const data = await res.json();
+            if (!res.ok || (data.role !== 'Admin' && data.role !== 'SuperAdmin')) {
+                throw new Error('Invalid Admin credentials.');
+            }
+            adminToken = data.token;
+            loginSection.classList.add('hidden');
+            portalSection.classList.remove('hidden');
+            await fetchAndRenderDevices();
+        } catch (err) {
+            showMessage(err.message, true);
+        }
+    });
+
+    document.getElementById('refresh-btn').addEventListener('click', fetchAndRenderDevices);
+</script>
+</body>
+</html>

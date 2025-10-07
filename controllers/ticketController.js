@@ -138,33 +138,27 @@ export const declineTicketInvitation = async (req, res) => {
     }
 };
 
-// --- THIS IS THE UPDATED FUNCTION ---
 // @desc    Get all tickets for the logged-in user, with filtering
 // @route   GET /api/tickets/mytickets
 // @access  Private
 export const getMyTickets = async (req, res) => {
     try {
         const today = new Date();
-        today.setHours(0, 0, 0, 0); // Set to the beginning of the current day
+        today.setHours(0, 0, 0, 0);
 
-        // We build our base database query to find tickets for the logged-in user.
         const query = { attendee: req.user._id };
 
-        // Now, we look for the 'status' filter from the app's request (e.g., ?status=upcoming)
         if (req.query.status === 'upcoming') {
-            // If the app wants upcoming tickets, we first find all event IDs with a date in the future.
             const upcomingEvents = await Event.find({ date: { $gte: today } }).select('_id');
-            // Then, we add a condition to our main query to only find tickets whose 'event' field is in that list.
             query.event = { $in: upcomingEvents.map(e => e._id) };
         } else if (req.query.status === 'past') {
-            // If the app wants past tickets, we do the same for events with a date in the past.
             const pastEvents = await Event.find({ date: { $lt: today } }).select('_id');
             query.event = { $in: pastEvents.map(e => e._id) };
         }
 
         const tickets = await Ticket.find(query)
-            .populate('event', 'name date location') // We still populate the event details
-            .sort({ 'event.date': -1 }); // Sort by event date, newest first
+            .populate('event', 'name date location')
+            .sort({ 'event.date': -1 });
 
         res.json(tickets);
     } catch (error) {
@@ -173,22 +167,57 @@ export const getMyTickets = async (req, res) => {
     }
 };
 
-// @desc    Validate a ticket via NFC scan
+
+// --- THIS IS THE UPDATED, HIGH-SECURITY VALIDATION FUNCTION ---
+// @desc    Validate a ticket via NFC scan using a two-factor check
 // @route   POST /api/tickets/validate
-// @access  Public
+// @access  Public (for IoT device)
 export const validateTicket = async (req, res) => {
-    const { platformUserId, eventId } = req.body;
+    // The Entry Gate now sends the platformUserId, the card's physical UID, and the eventId
+    const { platformUserId, cardUID, eventId } = req.body;
+
+    if (!platformUserId || !cardUID || !eventId) {
+        return res.status(400).json({ success: false, message: 'Platform User ID, Card UID, and Event ID are required.' });
+    }
+
     try {
+        // --- SECURITY CHECK #1: Find the user and verify their linked card's UID ---
         const user = await User.findOne({ platformUserId });
-        if (!user) return res.status(404).json({ success: false, message: 'Invalid User ID.' });
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User ID not found.' });
+        }
 
-        const ticket = await Ticket.findOne({ attendee: user._id, event: eventId, status: 'confirmed' });
-        if (!ticket) return res.status(404).json({ success: false, message: 'No valid ticket found for this user and event.' });
+        // This is the "Digital Lock". It defeats all cloned cards.
+        if (user.activeCardUID !== cardUID) {
+            console.warn(`SECURITY ALERT: Cloned card detected for user ${user.email}. Scanned UID: ${cardUID}, Expected UID: ${user.activeCardUID}`);
+            return res.status(403).json({ success: false, message: 'Card mismatch. Access denied.' });
+        }
 
+        // --- SECURITY CHECK #2: Find a valid, unused ticket for this user and event ---
+        const ticket = await Ticket.findOne({
+            attendee: user._id,
+            event: eventId,
+            status: 'confirmed'
+        });
+
+        if (!ticket) {
+            // Check if they have a used ticket to give a clearer message
+            const usedTicket = await Ticket.findOne({ attendee: user._id, event: eventId, status: 'used' });
+            if (usedTicket) {
+                return res.status(403).json({ success: false, message: 'This ticket has already been used.' });
+            }
+            return res.status(404).json({ success: false, message: 'No valid, unused ticket found for this event.' });
+        }
+
+        // If both checks pass, mark the ticket as used
         ticket.status = 'used';
         await ticket.save();
-        await markAsUsed(ticket.nftTokenId);
+
+        // We can call the blockchain service if needed in the future
+        // await markAsUsed(ticket.nftTokenId);
+
         res.json({ success: true, message: 'Check-in successful!', user: { name: user.name } });
+
     } catch (error) {
         console.error('Validation Error:', error);
         res.status(500).json({ success: false, message: 'Server Error' });

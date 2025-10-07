@@ -1,22 +1,21 @@
 // routes/gateRoutes.js
-
 import express from 'express';
-const router = express.Router();
-
 import {
     registerGate,
     getGateConfig,
     getAllGates,
-    updateGate
-} from '../controllers/gateController.js';
-import { protect, isAdmin } from '../middleware/authMiddleware.js';
+    updateGate,
+    setGateMode
+} from '../controllers/gateController.js'; // Changed from require
+import { protect, isAdmin } from '../middleware/authMiddleware.js'; // Changed from require
 
-// --- Public routes for the IoT devices ---
+const router = express.Router();
+
 router.post('/register', registerGate);
 router.get('/config/:macAddress', getGateConfig);
 
-// --- Protected routes for the Admin Portal ---
-router.route('/').get(protect, isAdmin, getAllGates);
-router.route('/:id').put(protect, isAdmin, updateGate);
+router.get('/', protect, isAdmin, getAllGates);
+router.put('/:id', protect, isAdmin, updateGate);
+router.put('/:id/set-mode', protect, isAdmin, setGateMode);
 
-export default router;
+export default router; // Changed from module.exports
