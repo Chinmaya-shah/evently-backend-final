@@ -5,7 +5,8 @@ import Event from '../models/eventModel.js';
 import User from '../models/userModel.js';
 import GroupReservation from '../models/groupReservationModel.js';
 import { mintTicket, markAsUsed } from '../services/blockchainService.js';
-import { sendPurchaseConfirmationEmail } from '../services/notificationService.js';
+// --- 1. IMPORT OUR NEW IN-APP NOTIFICATION FUNCTION ---
+import { sendPurchaseConfirmationEmail, createInAppNotification } from '../services/notificationService.js';
 
 // --- THIS IS THE DEV TICKET FUNCTION THAT WAS MISSING ---
 export const createDevTicket = async (req, res) => {
@@ -102,7 +103,14 @@ export const requestGroupTickets = async (req, res) => {
                 status: attendee.email === purchaser.email ? 'accepted' : 'pending_acceptance',
                 groupReservation: reservation._id,
             });
-            console.log(`Invitation logic processed for ${attendee.email}`);
+
+            // --- 2. THIS IS THE NEW NOTIFICATION TRIGGER ---
+            // If the ticket created is for a friend (not the purchaser), send them an in-app notification.
+            if (attendee.email !== purchaser.email) {
+                const message = `${purchaser.name} has invited you to the event: ${event.name}!`;
+                // The link will take them to the "My Tickets" page to respond.
+                await createInAppNotification(attendee._id, message, 'invitation', '/events');
+            }
         }
         res.status(201).json({
             message: `Reservation created successfully for ${finalAttendeeEmails.length} user(s).`,

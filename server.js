@@ -1,46 +1,42 @@
 // server.js
 
-import dotenv from 'dotenv';
-// We load the environment variables from the .env file FIRST.
-dotenv.config();
-
 import express from 'express';
-import connectDB from './config/db.js';
+import dotenv from 'dotenv';
 import cors from 'cors';
-
-// Import our new reservation service and all the route files
-import { startReservationFinalizer } from './services/reservationService.js';
+import connectDB from './config/db.js';
 import eventRoutes from './routes/eventRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import ticketRoutes from './routes/ticketRoutes.js';
-import gateRoutes from './routes/gateRoutes.js'; // <-- 1. IMPORT THE NEW GATE ROUTES
+import gateRoutes from './routes/gateRoutes.js';
+import notificationRoutes from './routes/notificationRoutes.js'; // <-- 1. IMPORT THE NEW ROUTES
+import { startReservationFinalizer } from './services/reservationService.js';
 
-// Connect to the database
+dotenv.config();
+
 connectDB();
 
 const app = express();
 
-// Enable the server to accept JSON in the body of requests
-app.use(express.json());
-// Enable Cross-Origin Resource Sharing (CORS) for our admin portal
 app.use(cors());
+app.use(express.json({ limit: '50mb' }));
 
-// --- START THE AUTOMATED BACKGROUND JOB ---
-startReservationFinalizer();
-
-// --- API Routes ---
 app.get('/', (req, res) => {
-  res.send('API is running...');
+    res.send('API is running...');
 });
 
 app.use('/api/events', eventRoutes);
 app.use('/api/users', authRoutes);
 app.use('/api/tickets', ticketRoutes);
-app.use('/api/gates', gateRoutes); // <-- 2. TELL THE APP TO USE THE NEW GATE ROUTES
+app.use('/api/gates', gateRoutes);
+app.use('/api/notifications', notificationRoutes); // <-- 2. PLUG IN THE NEW ROUTES
 
+startReservationFinalizer();
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-  console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
-});
+app.listen(
+    PORT,
+    console.log(
+        `Server running in ${process.env.NODE_ENV} mode on port ${PORT}`
+    )
+);
