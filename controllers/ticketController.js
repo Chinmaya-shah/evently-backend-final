@@ -5,8 +5,8 @@ import Event from '../models/eventModel.js';
 import User from '../models/userModel.js';
 import GroupReservation from '../models/groupReservationModel.js';
 import { mintTicket, markAsUsed } from '../services/blockchainService.js';
-// --- 1. IMPORT OUR NEW IN-APP NOTIFICATION FUNCTION ---
 import { sendPurchaseConfirmationEmail, createInAppNotification } from '../services/notificationService.js';
+import { logActivity } from '../services/activityService.js'; // <-- 1. IMPORT THE LOGGING SERVICE
 
 // --- THIS IS THE DEV TICKET FUNCTION THAT WAS MISSING ---
 export const createDevTicket = async (req, res) => {
@@ -34,29 +34,34 @@ export const createDevTicket = async (req, res) => {
 // All your other functions remain unchanged
 export const purchaseTicket = async (req, res) => {
     const { eventId } = req.body;
-    const attendeeId = req.user._id;
+    const attendee = req.user; // We get the full attendee user object from the 'protect' middleware
     try {
-        const existingTicket = await Ticket.findOne({ attendee: attendeeId, event: eventId });
+        const existingTicket = await Ticket.findOne({ attendee: attendee._id, event: eventId });
         if (existingTicket) {
             return res.status(400).json({ message: 'You have already purchased a ticket for this event.' });
         }
         const event = await Event.findById(eventId);
-        const attendee = await User.findById(attendeeId);
+        // No need to fetch attendee again, we have it from req.user
         if (!event) return res.status(404).json({ message: 'Event not found' });
-        if (!attendee) return res.status(404).json({ message: 'Attendee not found' });
         if (event.ticketsSold >= event.capacity) return res.status(400).json({ message: 'Event is sold out' });
 
         const attendeeWalletAddress = '0x639958B29d0c7F3bA1Ccc1aeaBAd1e60e783b5F8';
         const tokenId = await mintTicket(attendeeWalletAddress);
         const ticket = await Ticket.create({
             event: eventId,
-            attendee: attendeeId,
+            attendee: attendee._id,
             purchasePrice: event.ticketPrice,
             nftTokenId: tokenId,
             status: 'confirmed',
         });
         event.ticketsSold += 1;
         await event.save();
+
+        // --- 2. THIS IS THE NEW ACTIVITY TRIGGER ---
+        // Log that a ticket was sold for the event's organizer.
+        const message = `A ticket for "${event.name}" was purchased by ${attendee.name}.`;
+        await logActivity(event.organizer, message, 'ticket');
+
         sendPurchaseConfirmationEmail(attendee, ticket, event);
         res.status(201).json({ message: 'Ticket purchased and minted successfully!', ticket });
     } catch (error) {
@@ -104,11 +109,8 @@ export const requestGroupTickets = async (req, res) => {
                 groupReservation: reservation._id,
             });
 
-            // --- 2. THIS IS THE NEW NOTIFICATION TRIGGER ---
-            // If the ticket created is for a friend (not the purchaser), send them an in-app notification.
             if (attendee.email !== purchaser.email) {
                 const message = `${purchaser.name} has invited you to the event: ${event.name}!`;
-                // The link will take them to the "My Tickets" page to respond.
                 await createInAppNotification(attendee._id, message, 'invitation', '/events');
             }
         }
