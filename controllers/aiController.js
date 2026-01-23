@@ -1,9 +1,15 @@
 // controllers/aiController.js
 import fetch from 'node-fetch';
 import { v2 as cloudinary } from 'cloudinary';
-import FormData from 'form-data'; // We need this to handle the API request correctly
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import dotenv from 'dotenv';
 
-// This function for Unsplash suggestions remains unchanged
+dotenv.config();
+
+// Initialize Gemini (Brain) for Prompt Enhancement
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+// --- 1. UNSPLASH SUGGESTIONS (Search Logic) ---
 export const suggestImages = async (req, res) => {
     const { searchTerm } = req.query;
     if (!searchTerm) {
@@ -13,8 +19,7 @@ export const suggestImages = async (req, res) => {
     try {
         const response = await fetch(unsplashUrl, { headers: { 'Authorization': `Client-ID ${process.env.UNSPLASH_ACCESS_KEY}` } });
         if (!response.ok) {
-            const errorBody = await response.text();
-            throw new Error(`Unsplash API error: ${response.statusText} - ${errorBody}`);
+            throw new Error(`Unsplash API error: ${response.statusText}`);
         }
         const data = await response.json();
         if (!data.results) { return res.json([]); }
@@ -24,81 +29,109 @@ export const suggestImages = async (req, res) => {
         }));
         res.json(imageDetails);
     } catch (error) {
-        console.error('Error fetching images from Unsplash:', error);
+        console.error('Unsplash Error:', error);
         res.status(500).json({ message: 'Failed to fetch images.' });
     }
 };
 
-// This function for download tracking remains unchanged
 export const trackDownload = async (req, res) => {
     const { downloadUrl } = req.body;
-    if (!downloadUrl) { return res.status(400).json({ message: 'Download URL is required.' }); }
+    if (!downloadUrl) { return res.status(400).json({ message: 'URL required.' }); }
     try {
         await fetch(downloadUrl, { headers: { 'Authorization': `Client-ID ${process.env.UNSPLASH_ACCESS_KEY}` } });
-        res.status(200).json({ message: 'Download tracked.' });
+        res.status(200).json({ message: 'tracked' });
     } catch (error) {
-        console.error('Error tracking Unsplash download:', error);
-        res.status(500).json({ message: 'Failed to track download.' });
+        res.status(500).json({ message: 'Tracking failed' });
     }
 };
 
-// --- THIS IS THE NEW, CORRECTED FUNCTION FOR AI IMAGE GENERATION ---
-// @desc    Generate an image from a text prompt using Stability AI
-// @route   POST /api/ai/generate-image
-// @access  Private/Organizer
+// --- 2. HIGH QUALITY GENERATION (Gemini + Pollinations Flux) ---
 export const generateImage = async (req, res) => {
     const { prompt } = req.body;
+
     if (!prompt) {
-        return res.status(400).json({ message: 'A prompt is required.' });
+        return res.status(400).json({ message: 'Prompt is required' });
     }
 
-    const STABILITY_AI_URL = `https://api.stability.ai/v2beta/stable-image/generate/sd3`;
-
     try {
-        console.log(`[AI Gen] Sending prompt to Stability AI: "${prompt}"`);
+        let finalPrompt = prompt;
 
-        const formData = new FormData();
-        formData.append('prompt', prompt);
-        formData.append('output_format', 'png'); // We want a standard PNG image
-
-        // 1. Call the new AI Artist (Stability AI)
-        const aiResponse = await fetch(STABILITY_AI_URL, {
-            method: 'POST',
-            headers: {
-                ...formData.getHeaders(),
-                'Authorization': `Bearer ${process.env.STABILITY_API_KEY}`,
-                'Accept': 'image/*' // We expect an image back
-            },
-            body: formData
-        });
-
-        if (!aiResponse.ok) {
-            const errorBody = await aiResponse.text();
-            throw new Error(`Stability AI API error: ${aiResponse.statusText} - ${errorBody}`);
+        // A. GEMINI ENHANCEMENT (Write a Pro Prompt)
+        if (process.env.GEMINI_API_KEY) {
+            try {
+                console.log(`🧠 Gemini enhancing prompt...`);
+                const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+                
+                const enhancementRequest = `
+                    Refine this event description into a high-quality image generation prompt.
+                    Keywords: photorealistic, 4k, cinematic lighting, vibrant colors, poster style.
+                    Keep it under 40 words. No quotes.
+                    Input: "${prompt}"
+                `;
+                
+                const result = await model.generateContent(enhancementRequest);
+                finalPrompt = result.response.text().trim();
+                console.log(`✨ Pro Prompt: "${finalPrompt}"`);
+            } catch (e) {
+                console.warn("Gemini skipped, using original.");
+            }
         }
 
-        // The response is the raw image data, which we need to convert to Base64
-        const imageBuffer = await aiResponse.buffer();
-        const base64ImageData = imageBuffer.toString('base64');
+        // B. POLLINATIONS GENERATION (Flux Model - Best Quality Free)
+        console.log(`🎨 Rendering with Pollinations (Flux)...`);
+        
+        // Random seed ensures we don't get cached results (helps avoid some rate limits)
+        const seed = Math.floor(Math.random() * 1000000000); 
+        const aiUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(finalPrompt)}?seed=${seed}&width=1280&height=720&model=flux&nologo=true`;
 
-        console.log('[AI Gen] Image data received from Stability AI.');
+        const imageRes = await fetch(aiUrl);
+        
+        if (!imageRes.ok) {
+            throw new Error(`Pollinations Error: ${imageRes.statusText}`);
+        }
+        
+        const arrayBuffer = await imageRes.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        const base64Image = `data:image/jpeg;base64,${buffer.toString('base64')}`;
 
-        // 2. Take the new artwork to the Photo Lab (Cloudinary)
-        const uploadedResponse = await cloudinary.uploader.upload(
-            `data:image/png;base64,${base64ImageData}`,
-            {
-                folder: 'evently_ai_generated',
-                resource_type: 'image',
-            }
-        );
+        // C. CLOUDINARY UPLOAD
+        console.log("☁️ Uploading to Cloudinary...");
+        const uploadResponse = await cloudinary.uploader.upload(base64Image, {
+            folder: 'evently_ai_generated',
+            resource_type: 'image',
+        });
 
-        console.log('[AI Gen] Image successfully uploaded to Cloudinary.');
-
-        // 3. Deliver the final, permanent URL back to the frontend
-        res.status(200).json({ imageUrl: uploadedResponse.secure_url });
+        res.json({ 
+            success: true, 
+            imageUrl: uploadResponse.secure_url,
+            enhancedPrompt: finalPrompt
+        });
 
     } catch (error) {
-        console.error("AI Image Generation Error:", error);
-        res.status(500).json({ message: 'Failed to generate image.' });
+        console.error("AI Gen Failed:", error.message);
+        
+        // D. FINAL FALLBACK (Unsplash)
+        console.log("⚠️ Generator failed. Using Unsplash fallback...");
+        return fallbackToUnsplash(prompt, res);
+    }
+};
+
+const fallbackToUnsplash = async (prompt, res) => {
+    try {
+        const unsplashUrl = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(prompt)}&per_page=1&orientation=landscape`;
+        const unsplashRes = await fetch(unsplashUrl, { headers: { 'Authorization': `Client-ID ${process.env.UNSPLASH_ACCESS_KEY}` } });
+        const unsplashData = await unsplashRes.json();
+        
+        if (unsplashData.results && unsplashData.results.length > 0) {
+            res.json({
+                success: true,
+                imageUrl: unsplashData.results[0].urls.regular,
+                isFallback: true
+            });
+        } else {
+            res.status(500).json({ message: 'Could not generate or find an image.' });
+        }
+    } catch (err) {
+        res.status(500).json({ message: 'All image services unavailable.' });
     }
 };

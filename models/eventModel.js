@@ -2,20 +2,28 @@
 import mongoose from 'mongoose';
 
 const eventSchema = new mongoose.Schema({
+    // Only Name is strictly required for a Draft
     name: { type: String, required: true },
-    description: { type: String, required: true },
-    date: { type: Date, required: true },
-    location: { type: String, required: true },
     organizer: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'User' },
 
-    // --- THIS IS THE CRITICAL FIX #1 ---
-    // We are REMOVING 'required: true' to make the image optional.
+    // Everything else is optional (not required) so Drafts can be partial
+    description: { type: String },
+    date: { type: Date },
+    location: { type: String },
+
     eventImage: { type: String },
 
-    ticketPrice: { type: Number, required: true, default: 0 },
-    capacity: { type: Number, required: true },
+    ticketPrice: { type: Number, default: 0 },
+    capacity: { type: Number }, // Removed default, can be null
     ticketsSold: { type: Number, default: 0 },
-    status: { type: String, enum: ['Draft', 'Published', 'Ended'], default: 'Draft' }
+
+    category: { type: String, default: 'General' },
+
+    status: {
+        type: String,
+        enum: ['Draft', 'Published', 'Ended'],
+        default: 'Draft'
+    }
 }, { timestamps: true });
 
 const Event = mongoose.model('Event', eventSchema);

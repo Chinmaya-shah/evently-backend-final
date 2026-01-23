@@ -6,9 +6,9 @@ import User from '../models/userModel.js';
 import GroupReservation from '../models/groupReservationModel.js';
 import { mintTicket, markAsUsed } from '../services/blockchainService.js';
 import { sendPurchaseConfirmationEmail, createInAppNotification } from '../services/notificationService.js';
-import { logActivity } from '../services/activityService.js'; // <-- 1. IMPORT THE LOGGING SERVICE
+import { logActivity } from '../services/activityService.js';
 
-// --- THIS IS THE DEV TICKET FUNCTION THAT WAS MISSING ---
+// --- DEV TICKET FUNCTION ---
 export const createDevTicket = async (req, res) => {
     const { platformUserId, eventId } = req.body;
     try {
@@ -31,22 +31,22 @@ export const createDevTicket = async (req, res) => {
     }
 };
 
-// All your other functions remain unchanged
 export const purchaseTicket = async (req, res) => {
     const { eventId } = req.body;
-    const attendee = req.user; // We get the full attendee user object from the 'protect' middleware
+    const attendee = req.user;
     try {
         const existingTicket = await Ticket.findOne({ attendee: attendee._id, event: eventId });
         if (existingTicket) {
             return res.status(400).json({ message: 'You have already purchased a ticket for this event.' });
         }
         const event = await Event.findById(eventId);
-        // No need to fetch attendee again, we have it from req.user
+
         if (!event) return res.status(404).json({ message: 'Event not found' });
         if (event.ticketsSold >= event.capacity) return res.status(400).json({ message: 'Event is sold out' });
 
-        const attendeeWalletAddress = '0x639958B29d0c7F3bA1Ccc1aeaBAd1e60e783b5F8';
+        const attendeeWalletAddress = '0x639958B29d0c7F3bA1Ccc1aeaBAd1e60e783b5F8'; // Placeholder for V1.1
         const tokenId = await mintTicket(attendeeWalletAddress);
+
         const ticket = await Ticket.create({
             event: eventId,
             attendee: attendee._id,
@@ -54,11 +54,10 @@ export const purchaseTicket = async (req, res) => {
             nftTokenId: tokenId,
             status: 'confirmed',
         });
+
         event.ticketsSold += 1;
         await event.save();
 
-        // --- 2. THIS IS THE NEW ACTIVITY TRIGGER ---
-        // Log that a ticket was sold for the event's organizer.
         const message = `A ticket for "${event.name}" was purchased by ${attendee.name}.`;
         await logActivity(event.organizer, message, 'ticket');
 
@@ -160,24 +159,29 @@ export const declineTicketInvitation = async (req, res) => {
     }
 };
 
+// --- UPDATED GET MY TICKETS LOGIC ---
 export const getMyTickets = async (req, res) => {
     try {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
+        const { status } = req.query;
         const query = { attendee: req.user._id };
 
-        if (req.query.status === 'upcoming') {
-            const upcomingEvents = await Event.find({ date: { $gte: today } }).select('_id');
-            query.event = { $in: upcomingEvents.map(e => e._id) };
-        } else if (req.query.status === 'past') {
-            const pastEvents = await Event.find({ date: { $lt: today } }).select('_id');
-            query.event = { $in: pastEvents.map(e => e._id) };
+        // 1. Logic for "Active/Upcoming" Tickets (Wallet)
+        if (status === 'upcoming') {
+            // Fetch tickets that are valid for entry
+            query.status = { $in: ['confirmed', 'accepted'] };
+        }
+        // 2. Logic for "History/Past" Tickets
+        else if (status === 'history') {
+            // Fetch tickets that are already used, expired, or declined
+            query.status = { $in: ['used', 'expired', 'declined'] };
         }
 
         const tickets = await Ticket.find(query)
-            .populate('event', 'name date location')
-            .sort({ 'event.date': -1 });
+            .populate({
+                path: 'event',
+                select: 'name date location eventImage description' // Populate essential UI fields
+            })
+            .sort({ createdAt: -1 }); // Show newest purchases/activity first
 
         res.json(tickets);
     } catch (error) {
@@ -203,22 +207,27 @@ export const validateTicket = async (req, res) => {
             return res.status(404).json({ success: false, message: 'User ID not found.' });
         }
         console.log(`[2a] User found: ${user.email}`);
-        console.log('[3] Comparing card UIDs...');
+
+        console.log('[3] Comparing card UIDs (Digital Lock)...');
         if (user.activeCardUID !== cardUID) {
             console.warn(`[FAIL] SECURITY ALERT: Cloned card detected!`);
             console.error(`--> Scanned UID: ${cardUID}, Expected UID: ${user.activeCardUID}`);
             return res.status(403).json({ success: false, message: 'Card mismatch. Access denied.' });
         }
         console.log('[3a] Card UID match successful.');
+
         console.log('[4] Searching for a valid ticket...');
         const ticket = await Ticket.findOne({ attendee: user._id, event: eventId, status: 'confirmed' });
+
         if (!ticket) {
             console.error('[FAIL] No valid, confirmed ticket found for this user and event.');
             return res.status(404).json({ success: false, message: 'No valid, unused ticket found for this event.' });
         }
         console.log(`[4a] Valid ticket found: ID ${ticket._id}`);
-        ticket.status = 'used';
+
+        ticket.status = 'used'; // Mark as used so it can't be used again
         await ticket.save();
+
         console.log('[SUCCESS] All checks passed. Granting access.');
         res.json({ success: true, message: 'Check-in successful!', user: { name: user.name } });
     } catch (error) {

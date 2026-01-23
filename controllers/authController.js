@@ -4,6 +4,7 @@ import User from '../models/userModel.js';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 
+// In-memory store for OTPs
 const activationTokens = new Map();
 
 const generateToken = (id, role) => {
@@ -13,12 +14,13 @@ const generateToken = (id, role) => {
 };
 
 export const registerUser = async (req, res) => {
-    // ... function content is correct and unchanged
     const { name, email, password, role } = req.body;
     try {
         const userExists = await User.findOne({ email });
         if (userExists) { return res.status(400).json({ message: 'User already exists' }); }
+
         const user = await User.create({ name, email, password, role: role || 'Attendee' });
+
         if (user) {
             res.status(201).json({
                 _id: user._id, name: user.name, email: user.email, role: user.role,
@@ -29,7 +31,6 @@ export const registerUser = async (req, res) => {
 };
 
 export const loginUser = async (req, res) => {
-    // ... function content is correct and unchanged
     const { email, password } = req.body;
     try {
         const user = await User.findOne({ email });
@@ -43,18 +44,22 @@ export const loginUser = async (req, res) => {
 };
 
 export const getUserProfile = async (req, res) => {
-    // ... function content is correct and unchanged
     const user = await User.findById(req.user._id);
     if (user) {
         res.json({
-            _id: user._id, name: user.name, email: user.email, role: user.role,
-            platformUserId: user.platformUserId, isVerified: user.isVerified, isCardActivated: user.isCardActivated,
+            _id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            platformUserId: user.platformUserId,
+            isVerified: user.isVerified,
+            isCardActivated: user.isCardActivated,
+            activeCardUID: user.activeCardUID
         });
     } else { res.status(404).json({ message: 'User not found' }); }
 };
 
 export const submitKyc = async (req, res) => {
-    // ... function content is correct and unchanged
     try {
         const user = await User.findById(req.user._id);
         if (user) {
@@ -69,63 +74,82 @@ export const submitKyc = async (req, res) => {
 };
 
 export const findUserForAdmin = async (req, res) => {
-    // ... function content is correct and unchanged
     const email = req.query.email;
     if (!email) { return res.status(400).json({ message: 'Email query parameter is required.' }); }
     try {
         const user = await User.findOne({ email });
         if (user) {
             res.json({
-                _id: user._id, name: user.name, email: user.email,
-                isVerified: user.isVerified, isCardActivated: user.isCardActivated,
+                _id: user._id,
+                name: user.name,
+                email: user.email,
+                isVerified: user.isVerified,
+                isCardActivated: user.isCardActivated,
+                activeCardUID: user.activeCardUID,
+                kycStatus: user.kycStatus || (user.isVerified ? 'verified' : 'pending') // Handle mixed legacy/new state
             });
         } else { res.status(404).json({ message: `User with email ${email} not found.` }); }
     } catch (error) { res.status(500).json({ message: 'Server Error' }); }
 };
 
-export const prepareActivation = async (req, res) => {
-    // ... function content is correct and unchanged
+// --- RENAMED TO MATCH FRONTEND (/generate-otp) ---
+export const generateActivationCode = async (req, res) => {
     try {
         const user = await User.findById(req.body.userId);
         if (!user) return res.status(404).json({ message: 'User not found' });
-        if (!user.isVerified) return res.status(400).json({ message: 'User must be KYC verified.' });
+
+        // Check verification (Support both legacy isVerified and new kycStatus)
+        const isVerified = user.isVerified || user.kycStatus === 'verified';
+
+        if (!isVerified) return res.status(400).json({ message: 'User must be KYC verified.' });
         if (user.isCardActivated) return res.status(400).json({ message: 'User already has an active card.' });
+
         const oneTimeCode = crypto.randomInt(100000, 999999).toString();
+
+        // Store code in memory map
         activationTokens.set(oneTimeCode, {
-            userId: user._id, platformUserId: user.platformUserId, expiresAt: Date.now() + 60 * 1000,
+            userId: user._id,
+            platformUserId: user.platformUserId,
+            expiresAt: Date.now() + 60 * 1000,
         });
-        res.status(200).json({ oneTimeCode });
+
+        // Frontend expects { code: ... }
+        res.status(200).json({ code: oneTimeCode });
     } catch (error) { res.status(500).json({ message: 'Server Error' }); }
 };
 
 export const getIdForKiosk = async (req, res) => {
-    // ... function content is correct and unchanged
     const { oneTimeCode } = req.body;
     const tokenData = activationTokens.get(oneTimeCode);
+
     if (!tokenData || tokenData.expiresAt < Date.now()) {
         activationTokens.delete(oneTimeCode);
         return res.status(404).json({ message: 'Invalid or expired activation code.' });
     }
-    tokenData.expiresAt = Date.now() + 60 * 1000;
-    activationTokens.set(oneTimeCode, tokenData);
+
+    // We do NOT delete the token here anymore, we wait for confirmation
+    // tokenData.expiresAt = Date.now() + 60 * 1000; // Optional: extend time? No, keep strict.
+
     res.status(200).json({ platformUserId: tokenData.platformUserId });
 };
 
 export const confirmActivation = async (req, res) => {
-    // ... function content is correct and unchanged
     const { oneTimeCode, cardUID } = req.body;
     const tokenData = activationTokens.get(oneTimeCode);
+
     if (!tokenData || tokenData.expiresAt < Date.now()) {
         activationTokens.delete(oneTimeCode);
         return res.status(404).json({ message: 'Invalid or expired activation code.' });
     }
+
     try {
         const user = await User.findById(tokenData.userId);
         if (user) {
             user.isCardActivated = true;
             user.activeCardUID = cardUID;
             await user.save();
-            activationTokens.delete(oneTimeCode);
+
+            activationTokens.delete(oneTimeCode); // NOW we delete it
             res.status(200).json({ message: 'Activation confirmed successfully.' });
         } else { res.status(404).json({ message: 'User not found.' }); }
     } catch (error) {

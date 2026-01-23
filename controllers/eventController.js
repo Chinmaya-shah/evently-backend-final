@@ -10,28 +10,43 @@ import { v2 as cloudinary } from 'cloudinary';
 // @access  Private/Organizer
 export const createEvent = async (req, res) => {
     try {
-        const { name, description, eventImage, date, location, ticketPrice, capacity } = req.body;
+        const { name, description, eventImage, date, location, ticketPrice, capacity, status, category } = req.body;
 
-        let finalImageUrl = ''; // Use a different name to avoid confusion
+        // --- VALIDATION LOGIC ---
+        // If user wants to PUBLISH, we strictly check all fields
+        if (status === 'Published') {
+            if (!description || !date || !location || !capacity || !eventImage) {
+                return res.status(400).json({
+                    message: 'Cannot publish incomplete event. Please fill all fields (Image, Date, Location, Capacity) or save as Draft.'
+                });
+            }
+        }
+        // If Draft, we only need the Name (checked by Mongoose)
+
+        let finalImageUrl = '';
         if (eventImage) {
-            const uploadedResponse = await cloudinary.uploader.upload(eventImage, {
-                folder: 'evently_events',
-                resource_type: 'image',
-            });
-            finalImageUrl = uploadedResponse.secure_url;
+            if (eventImage.startsWith('data:image')) {
+                const uploadedResponse = await cloudinary.uploader.upload(eventImage, {
+                    folder: 'evently_events',
+                    resource_type: 'image',
+                });
+                finalImageUrl = uploadedResponse.secure_url;
+            } else {
+                finalImageUrl = eventImage;
+            }
         }
 
         const event = new Event({
             name,
             description,
-            // --- THIS IS THE CRITICAL FIX ---
-            // We now correctly save the URL from Cloudinary, not the raw Base64 data.
             eventImage: finalImageUrl,
             date,
             location,
-            ticketPrice,
-            capacity,
+            ticketPrice: Number(ticketPrice) || 0,
+            capacity: Number(capacity),
             organizer: req.user._id,
+            status: status || 'Draft',
+            category: category || 'General'
         });
 
         const createdEvent = await event.save();
@@ -48,7 +63,7 @@ export const createEvent = async (req, res) => {
 
 // @desc    Update an event
 // @route   PUT /api/events/:id
-// @access  Private/Owner of the event
+// @access  Private/Owner
 export const updateEvent = async (req, res) => {
     try {
         const event = await Event.findById(req.params.id);
@@ -59,6 +74,22 @@ export const updateEvent = async (req, res) => {
 
         if (event.organizer.toString() !== req.user._id.toString()) {
             return res.status(403).json({ message: 'User not authorized to update this event' });
+        }
+
+        // --- VALIDATION LOGIC FOR UPDATE ---
+        // If switching to Published, check fields
+        if (req.body.status === 'Published') {
+             const hasDesc = req.body.description || event.description;
+             const hasDate = req.body.date || event.date;
+             const hasLoc = req.body.location || event.location;
+             const hasCap = req.body.capacity || event.capacity;
+             const hasImg = req.body.eventImage || event.eventImage;
+
+             if (!hasDesc || !hasDate || !hasLoc || !hasCap || !hasImg) {
+                return res.status(400).json({
+                    message: 'Cannot publish incomplete event. Please fill all fields.'
+                });
+             }
         }
 
         let finalImageUrl = event.eventImage;
@@ -77,8 +108,12 @@ export const updateEvent = async (req, res) => {
         event.location = req.body.location || event.location;
         event.ticketPrice = req.body.ticketPrice === undefined ? event.ticketPrice : req.body.ticketPrice;
         event.capacity = req.body.capacity || event.capacity;
+        event.category = req.body.category || event.category;
 
-        // --- THIS IS THE SECOND CRITICAL FIX ---
+        if (req.body.status) {
+            event.status = req.body.status;
+        }
+
         event.eventImage = finalImageUrl;
 
         const updatedEvent = await event.save();
@@ -90,20 +125,19 @@ export const updateEvent = async (req, res) => {
     }
 };
 
-
-// @desc    Get all events
+// @desc    Get all events (PUBLIC FEED)
 // @route   GET /api/events
 // @access  Public
 export const getEvents = async (req, res) => {
     try {
-        const events = await Event.find({}).populate('organizer', 'name');
+        const events = await Event.find({ status: 'Published' }).populate('organizer', 'name');
         res.json(events);
     } catch (error) {
         res.status(500).json({ message: 'Server Error' });
     }
 };
 
-// @desc    Get a single event by ID
+// @desc    Get single event
 // @route   GET /api/events/:id
 // @access  Public
 export const getEventById = async (req, res) => {
@@ -119,9 +153,9 @@ export const getEventById = async (req, res) => {
     }
 };
 
-// @desc    Delete an event
+// @desc    Delete event
 // @route   DELETE /api/events/:id
-// @access  Private/Owner of the event
+// @access  Private/Owner
 export const deleteEvent = async (req, res) => {
     try {
         const event = await Event.findById(req.params.id);
@@ -139,31 +173,31 @@ export const deleteEvent = async (req, res) => {
     }
 };
 
-// @desc    Get analytics for a specific event
-// @route   GET /api/events/:id/analytics
-// @access  Private/Owner of the event
+// @desc    Get analytics
+// @route   GET /api/events/analytics/:id
+// @access  Private/Owner
 export const getEventAnalytics = async (req, res) => {
-    try {
-        const event = await Event.findById(req.params.id);
-        if (!event) { return res.status(404).json({ message: 'Event not found' }); }
-        if (event.organizer.toString() !== req.user._id.toString()) {
-            return res.status(403).json({ message: 'User not authorized to view analytics for this event' });
-        }
-        const totalRevenue = event.ticketsSold * event.ticketPrice;
-        const tickets = await Ticket.find({ event: req.params.id }).populate('attendee', 'name email platformUserId');
-        res.json({
-            eventName: event.name,
-            ticketsSold: event.ticketsSold,
-            capacity: event.capacity,
-            totalRevenue: totalRevenue,
-            attendees: tickets.map(t => t.attendee),
-        });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error while fetching analytics.' });
+  try {
+    const event = await Event.findById(req.params.id);
+    if (!event) { return res.status(404).json({ message: 'Event not found' }); }
+    if (event.organizer.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'User not authorized to view analytics for this event' });
     }
+    const totalRevenue = event.ticketsSold * event.ticketPrice;
+    const tickets = await Ticket.find({ event: req.params.id }).populate('attendee', 'name email platformUserId');
+    res.json({
+      eventName: event.name,
+      ticketsSold: event.ticketsSold,
+      capacity: event.capacity,
+      totalRevenue: totalRevenue,
+      attendees: tickets.map(t => t.attendee),
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error while fetching analytics.' });
+  }
 };
 
-// @desc    Get all events for the logged-in organizer
+// @desc    Get organizer's events (My Events)
 // @route   GET /api/events/myevents
 // @access  Private/Organizer
 export const getMyEvents = async (req, res) => {
