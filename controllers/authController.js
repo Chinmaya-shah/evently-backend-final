@@ -73,6 +73,7 @@ export const submitKyc = async (req, res) => {
     } catch (error) { res.status(400).json({ message: 'Invalid KYC data provided' }); }
 };
 
+// --- THIS IS THE FIX ---
 export const findUserForAdmin = async (req, res) => {
     const email = req.query.email;
     if (!email) { return res.status(400).json({ message: 'Email query parameter is required.' }); }
@@ -83,22 +84,22 @@ export const findUserForAdmin = async (req, res) => {
                 _id: user._id,
                 name: user.name,
                 email: user.email,
+                // ADDED THIS FIELD:
+                platformUserId: user.platformUserId,
                 isVerified: user.isVerified,
                 isCardActivated: user.isCardActivated,
                 activeCardUID: user.activeCardUID,
-                kycStatus: user.kycStatus || (user.isVerified ? 'verified' : 'pending') // Handle mixed legacy/new state
+                kycStatus: user.kycStatus || (user.isVerified ? 'verified' : 'pending')
             });
         } else { res.status(404).json({ message: `User with email ${email} not found.` }); }
     } catch (error) { res.status(500).json({ message: 'Server Error' }); }
 };
 
-// --- RENAMED TO MATCH FRONTEND (/generate-otp) ---
 export const generateActivationCode = async (req, res) => {
     try {
         const user = await User.findById(req.body.userId);
         if (!user) return res.status(404).json({ message: 'User not found' });
 
-        // Check verification (Support both legacy isVerified and new kycStatus)
         const isVerified = user.isVerified || user.kycStatus === 'verified';
 
         if (!isVerified) return res.status(400).json({ message: 'User must be KYC verified.' });
@@ -106,14 +107,12 @@ export const generateActivationCode = async (req, res) => {
 
         const oneTimeCode = crypto.randomInt(100000, 999999).toString();
 
-        // Store code in memory map
         activationTokens.set(oneTimeCode, {
             userId: user._id,
             platformUserId: user.platformUserId,
             expiresAt: Date.now() + 60 * 1000,
         });
 
-        // Frontend expects { code: ... }
         res.status(200).json({ code: oneTimeCode });
     } catch (error) { res.status(500).json({ message: 'Server Error' }); }
 };
@@ -127,14 +126,35 @@ export const getIdForKiosk = async (req, res) => {
         return res.status(404).json({ message: 'Invalid or expired activation code.' });
     }
 
-    // We do NOT delete the token here anymore, we wait for confirmation
-    // tokenData.expiresAt = Date.now() + 60 * 1000; // Optional: extend time? No, keep strict.
-
     res.status(200).json({ platformUserId: tokenData.platformUserId });
 };
 
 export const confirmActivation = async (req, res) => {
-    const { oneTimeCode, cardUID } = req.body;
+    const { oneTimeCode, cardUID, userId } = req.body;
+
+    // --- BYPASS LOGIC FOR REMOTE JOBS ---
+    // If this comes from the Gate via Remote Job, we use userId (platformUserId) directly
+    if (oneTimeCode === "REMOTE_BYPASS" && userId) {
+        try {
+             // We need to find by platformUserId, NOT _id, because the Gate sends platformUserId
+             const user = await User.findOne({ platformUserId: userId });
+
+             if (user) {
+                 user.isCardActivated = true;
+                 user.activeCardUID = cardUID;
+                 await user.save();
+                 console.log(`REMOTE ACTIVATION: Linked ${cardUID} to ${user.email}`);
+                 return res.status(200).json({ message: 'Remote activation confirmed.' });
+             } else {
+                 return res.status(404).json({ message: 'User not found for remote activation.' });
+             }
+        } catch (e) {
+            console.error("Remote confirm error:", e);
+            return res.status(500).json({ message: 'Error' });
+        }
+    }
+
+    // --- STANDARD OTP LOGIC ---
     const tokenData = activationTokens.get(oneTimeCode);
 
     if (!tokenData || tokenData.expiresAt < Date.now()) {
@@ -149,7 +169,7 @@ export const confirmActivation = async (req, res) => {
             user.activeCardUID = cardUID;
             await user.save();
 
-            activationTokens.delete(oneTimeCode); // NOW we delete it
+            activationTokens.delete(oneTimeCode);
             res.status(200).json({ message: 'Activation confirmed successfully.' });
         } else { res.status(404).json({ message: 'User not found.' }); }
     } catch (error) {
