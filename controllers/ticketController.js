@@ -23,6 +23,7 @@ export const createDevTicket = async (req, res) => {
             attendee: user._id,
             purchasePrice: event.ticketPrice,
             nftTokenId: 'dev-token-' + Date.now(),
+            mintingTxHash: 'dev-hash-' + Date.now(), // Fake hash for Dev
             status: 'confirmed',
         });
         res.status(201).json({ message: "DEV TICKET CREATED", ticket: newTicket });
@@ -44,14 +45,19 @@ export const purchaseTicket = async (req, res) => {
         if (!event) return res.status(404).json({ message: 'Event not found' });
         if (event.ticketsSold >= event.capacity) return res.status(400).json({ message: 'Event is sold out' });
 
-        const attendeeWalletAddress = '0x639958B29d0c7F3bA1Ccc1aeaBAd1e60e783b5F8'; // Placeholder for V1.1
-        const tokenId = await mintTicket(attendeeWalletAddress);
+        const attendeeWalletAddress = '0x639958B29d0c7F3bA1Ccc1aeaBAd1e60e783b5F8';
 
+        // --- 1. MINT & GET HASH ---
+        // Destructure to get both values
+        const { tokenId, txHash } = await mintTicket(attendeeWalletAddress);
+
+        // --- 2. CREATE TICKET WITH HASH ---
         const ticket = await Ticket.create({
             event: eventId,
             attendee: attendee._id,
             purchasePrice: event.ticketPrice,
             nftTokenId: tokenId,
+            mintingTxHash: txHash, // <--- SAVING THE RECEIPT
             status: 'confirmed',
         });
 
@@ -159,29 +165,20 @@ export const declineTicketInvitation = async (req, res) => {
     }
 };
 
-// --- UPDATED GET MY TICKETS LOGIC ---
 export const getMyTickets = async (req, res) => {
     try {
         const { status } = req.query;
         const query = { attendee: req.user._id };
 
-        // 1. Logic for "Active/Upcoming" Tickets (Wallet)
         if (status === 'upcoming') {
-            // Fetch tickets that are valid for entry
             query.status = { $in: ['confirmed', 'accepted'] };
-        }
-        // 2. Logic for "History/Past" Tickets
-        else if (status === 'history') {
-            // Fetch tickets that are already used, expired, or declined
+        } else if (status === 'history') {
             query.status = { $in: ['used', 'expired', 'declined'] };
         }
 
         const tickets = await Ticket.find(query)
-            .populate({
-                path: 'event',
-                select: 'name date location eventImage description' // Populate essential UI fields
-            })
-            .sort({ createdAt: -1 }); // Show newest purchases/activity first
+            .populate('event', 'name date location eventImage description')
+            .sort({ createdAt: -1 });
 
         res.json(tickets);
     } catch (error) {
@@ -191,47 +188,26 @@ export const getMyTickets = async (req, res) => {
 };
 
 export const validateTicket = async (req, res) => {
-    console.log("\n--- [VALIDATION START] ---");
     const { platformUserId, cardUID, eventId } = req.body;
-    console.log(`[1] Received data: platformUserId=${platformUserId}, cardUID=${cardUID}, eventId=${eventId}`);
-
     if (!platformUserId || !cardUID || !eventId) {
-        console.error("[FAIL] Missing required data in the request.");
-        return res.status(400).json({ success: false, message: 'Platform User ID, Card UID, and Event ID are required.' });
+        return res.status(400).json({ success: false, message: 'Missing data.' });
     }
     try {
-        console.log('[2] Searching for user...');
         const user = await User.findOne({ platformUserId });
-        if (!user) {
-            console.error('[FAIL] User not found in the database.');
-            return res.status(404).json({ success: false, message: 'User ID not found.' });
-        }
-        console.log(`[2a] User found: ${user.email}`);
+        if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
 
-        console.log('[3] Comparing card UIDs (Digital Lock)...');
         if (user.activeCardUID !== cardUID) {
-            console.warn(`[FAIL] SECURITY ALERT: Cloned card detected!`);
-            console.error(`--> Scanned UID: ${cardUID}, Expected UID: ${user.activeCardUID}`);
-            return res.status(403).json({ success: false, message: 'Card mismatch. Access denied.' });
+            console.warn(`SECURITY ALERT: Clone detected!`);
+            return res.status(403).json({ success: false, message: 'Card mismatch.' });
         }
-        console.log('[3a] Card UID match successful.');
 
-        console.log('[4] Searching for a valid ticket...');
         const ticket = await Ticket.findOne({ attendee: user._id, event: eventId, status: 'confirmed' });
+        if (!ticket) return res.status(404).json({ success: false, message: 'No valid ticket found.' });
 
-        if (!ticket) {
-            console.error('[FAIL] No valid, confirmed ticket found for this user and event.');
-            return res.status(404).json({ success: false, message: 'No valid, unused ticket found for this event.' });
-        }
-        console.log(`[4a] Valid ticket found: ID ${ticket._id}`);
-
-        ticket.status = 'used'; // Mark as used so it can't be used again
+        ticket.status = 'used';
         await ticket.save();
-
-        console.log('[SUCCESS] All checks passed. Granting access.');
         res.json({ success: true, message: 'Check-in successful!', user: { name: user.name } });
     } catch (error) {
-        console.error('[CRITICAL FAIL] An unexpected error occurred during validation:', error);
         res.status(500).json({ success: false, message: 'Server Error' });
     }
 };

@@ -6,12 +6,12 @@ const ticketSchema = new mongoose.Schema({
   event: {
     type: mongoose.Schema.Types.ObjectId,
     required: true,
-    ref: 'Event', // This links the ticket to a specific event
+    ref: 'Event',
   },
   attendee: {
     type: mongoose.Schema.Types.ObjectId,
     required: true,
-    ref: 'User', // This links the ticket to a specific user
+    ref: 'User',
   },
   purchasePrice: {
     type: Number,
@@ -19,31 +19,34 @@ const ticketSchema = new mongoose.Schema({
   },
   nftTokenId: {
     type: String,
-    // This is no longer required on creation, as it's only set after payment.
+    // Populated after minting
   },
-  // --- THIS IS THE CRITICAL CHANGE ---
-  // We replace 'isCheckedIn' with a more detailed status field.
+  // --- NEW FIELD: PROOF OF PURCHASE ---
+  mintingTxHash: {
+    type: String,
+    default: '',
+  },
   status: {
     type: String,
     required: true,
-    // These are the possible stages in a ticket's life
     enum: [
-      'pending_acceptance', // Invitation sent, waiting for friend's response
-      'accepted',           // Friend accepted, waiting for payment finalization
-      'declined',           // Friend declined the invitation
-      'confirmed',          // Payment finalized, ticket is valid for entry
-      'used',               // Attendee has checked in at the event
-      'expired',            // Invitation was not answered in time
+      'pending_payment',
+      'pending_acceptance',
+      'accepted',
+      'declined',
+      'confirmed',
+      'used',
+      'expired',
+      'cancelled'
     ],
-    default: 'confirmed', // A regular, single purchase defaults to confirmed
+    default: 'confirmed',
   },
-  // This new field will link a ticket to its parent group reservation
   groupReservation: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'GroupReservation',
   },
 }, {
-  timestamps: true, // Automatically adds createdAt and updatedAt fields
+  timestamps: true,
 });
 
 const Ticket = mongoose.model('Ticket', ticketSchema);

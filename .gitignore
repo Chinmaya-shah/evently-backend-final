@@ -5,7 +5,7 @@ node_modules
 .env
 
 # Build artifacts
-/build
+#/build
 
 # Logs
 logs

@@ -12,6 +12,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // --- 2. CONFIGURATION ---
+// Using generic names to support both Polygon and Ganache based on .env
 const RPC_URL = process.env.RPC_URL;
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS;
@@ -25,20 +26,15 @@ if (!RPC_URL || !PRIVATE_KEY || !CONTRACT_ADDRESS) {
 let contract;
 
 try {
-    // Connect to Polygon (or Ganache)
     const provider = new ethers.JsonRpcProvider(RPC_URL);
     const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
 
-    // Load the Contract ABI
-    // This file was created by 'npx truffle migrate'
     const contractPath = path.resolve(__dirname, '../build/contracts/EventTicket.json');
 
     if (fs.existsSync(contractPath)) {
         const contractJson = JSON.parse(fs.readFileSync(contractPath, 'utf8'));
         contract = new ethers.Contract(CONTRACT_ADDRESS, contractJson.abi, wallet);
         console.log(`🔗 Blockchain Connected.`);
-        console.log(`   Target: ${RPC_URL}`);
-        console.log(`   Contract: ${CONTRACT_ADDRESS}`);
     } else {
         console.error("⚠️  Contract JSON not found. Run 'npx truffle migrate' first.");
     }
@@ -49,6 +45,7 @@ try {
 // --- 4. CORE FUNCTIONS ---
 
 // @desc    Mints a new NFT ticket
+// @returns Object { tokenId, txHash }
 export const mintTicket = async (attendeeAddress) => {
     console.log(`⛏️  Minting for: ${attendeeAddress}...`);
 
@@ -58,17 +55,17 @@ export const mintTicket = async (attendeeAddress) => {
 
     try {
         // 1. BROADCAST
-        // We override timeout to 60s to handle slow networks
         const tx = await contract.mintTicket(attendeeAddress, { timeout: 60000 });
+        const txHash = tx.hash;
 
-        console.log(`🚀 Transaction sent! Hash: ${tx.hash}`);
+        console.log(`🚀 Transaction sent! Hash: ${txHash}`);
 
-        // 2. OPTIMISTIC CONFIRMATION
-        // We wait for 1 block. If it times out, we assume success because the hash exists.
+        // 2. CONFIRMATION
         try {
             const receipt = await tx.wait(1);
-            // Attempt to parse Token ID
             let tokenId = null;
+
+            // Try to parse logs to find the Token ID
             if (receipt.logs) {
                 for (const log of receipt.logs) {
                     try {
@@ -80,13 +77,17 @@ export const mintTicket = async (attendeeAddress) => {
                     } catch (e) {}
                 }
             }
-            const finalId = tokenId || tx.hash;
+
+            const finalId = tokenId || txHash; // Fallback to hash if ID parsing fails
             console.log(`✅ Confirmed! Token ID: ${finalId}`);
-            return finalId;
+
+            // --- RETURN BOTH ID AND HASH ---
+            return { tokenId: finalId, txHash: txHash };
 
         } catch (waitError) {
-            console.warn(`⚠️ Wait timed out, but transaction was sent. Hash: ${tx.hash}`);
-            return tx.hash; // Return hash as fallback ID
+            console.warn(`⚠️ Wait timed out, but transaction sent. Hash: ${txHash}`);
+            // Return Hash for both if confirmation failed but tx sent
+            return { tokenId: txHash, txHash: txHash };
         }
 
     } catch (error) {
@@ -96,8 +97,6 @@ export const mintTicket = async (attendeeAddress) => {
 };
 
 export const markAsUsed = async (tokenId) => {
-    // For V1.1/V2.0, we rely on MongoDB for status to keep it fast and free.
-    // Real on-chain invalidation would cost gas.
     console.log(`🎫 Ticket ${tokenId} usage logged (Off-chain).`);
     return true;
 };

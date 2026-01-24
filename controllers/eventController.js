@@ -173,7 +173,7 @@ export const deleteEvent = async (req, res) => {
     }
 };
 
-// @desc    Get analytics
+// @desc    Get analytics for a specific event
 // @route   GET /api/events/analytics/:id
 // @access  Private/Owner
 export const getEventAnalytics = async (req, res) => {
@@ -183,14 +183,29 @@ export const getEventAnalytics = async (req, res) => {
     if (event.organizer.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: 'User not authorized to view analytics for this event' });
     }
+
     const totalRevenue = event.ticketsSold * event.ticketPrice;
-    const tickets = await Ticket.find({ event: req.params.id }).populate('attendee', 'name email platformUserId');
+
+    // --- UPDATED: Fetch full ticket details including Transaction Hash ---
+    const tickets = await Ticket.find({ event: req.params.id })
+        .populate('attendee', 'name email platformUserId')
+        .sort({ createdAt: -1 });
+
     res.json({
       eventName: event.name,
       ticketsSold: event.ticketsSold,
       capacity: event.capacity,
       totalRevenue: totalRevenue,
-      attendees: tickets.map(t => t.attendee),
+      // Map to a clean structure for the frontend audit table
+      attendees: tickets.map(t => ({
+          name: t.attendee?.name || 'Unknown',
+          email: t.attendee?.email || 'N/A',
+          platformId: t.attendee?.platformUserId || 'N/A',
+          ticketId: t.nftTokenId || 'Pending',
+          txHash: t.mintingTxHash || 'N/A', // <--- THE PROOF FIELD
+          purchaseDate: t.createdAt,
+          status: t.status
+      })),
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error while fetching analytics.' });
