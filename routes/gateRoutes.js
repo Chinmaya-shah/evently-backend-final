@@ -5,17 +5,23 @@ import {
     getGateConfig,
     getAllGates,
     updateGate,
-    setGateMode
-} from '../controllers/gateController.js'; // Changed from require
-import { protect, isAdmin } from '../middleware/authMiddleware.js'; // Changed from require
+    setGateMode,
+    sendJobToGate // <-- Import new function
+} from '../controllers/gateController.js';
+import { protect, isAdmin } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
+// Public (IoT Device)
 router.post('/register', registerGate);
 router.get('/config/:macAddress', getGateConfig);
 
+// Private (Admin)
 router.get('/', protect, isAdmin, getAllGates);
 router.put('/:id', protect, isAdmin, updateGate);
 router.put('/:id/set-mode', protect, isAdmin, setGateMode);
 
-export default router; // Changed from module.exports
+// --- NEW ROUTE FOR REMOTE COMMANDS ---
+router.post('/send-job', protect, isAdmin, sendJobToGate);
+
+export default router;

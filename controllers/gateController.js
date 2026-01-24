@@ -1,5 +1,5 @@
 // controllers/gateController.js
-import Gate from '../models/gateModel.js'; // Changed from require
+import Gate from '../models/gateModel.js';
 
 export const registerGate = async (req, res) => {
     const { macAddress } = req.body;
@@ -9,11 +9,15 @@ export const registerGate = async (req, res) => {
     try {
         const gateExists = await Gate.findOne({ macAddress });
         if (gateExists) {
+            // Update status to online whenever it registers/pings
+            gateExists.status = 'online';
+            await gateExists.save();
             return res.status(200).json({ message: 'Gate already registered.', gate: gateExists });
         }
         const newGate = await Gate.create({
             macAddress,
             name: `New Gate - ${macAddress.slice(-5).replace(/:/g, '')}`,
+            status: 'online'
         });
         res.status(201).json({ message: 'Gate registered successfully.', gate: newGate });
     } catch (error) {
@@ -25,10 +29,30 @@ export const getGateConfig = async (req, res) => {
     try {
         const gate = await Gate.findOne({ macAddress: req.params.macAddress });
         if (gate) {
-            res.json({
+            // Mark as online since it's polling
+            gate.status = 'online';
+
+            // Prepare response
+            const response = {
                 activeEventId: gate.activeEvent,
                 mode: gate.mode,
-            });
+                job: null // Default no job
+            };
+
+            // CHECK FOR JOBS
+            if (gate.pendingJob) {
+                console.log(`🚀 Sending Remote Job to ${gate.macAddress}: ${gate.pendingJob.command}`);
+                response.job = gate.pendingJob;
+
+                // Clear the job from DB so it doesn't run twice?
+                // Better approach: Gate must confirm completion.
+                // For V2.0 simplicity: We send it, and assume gate clears it or we clear it here.
+                // Let's clear it here to prevent loops, effectively "Popping" the queue.
+                gate.pendingJob = null;
+            }
+
+            await gate.save();
+            res.json(response);
         } else {
             res.status(404).json({ message: 'Gate not found.' });
         }
@@ -82,4 +106,32 @@ export const setGateMode = async (req, res) => {
     }
 };
 
-// Removed module.exports and used named exports above
+// --- NEW FUNCTION: SEND REMOTE JOB ---
+export const sendJobToGate = async (req, res) => {
+    try {
+        const { gateId, command, payload } = req.body;
+        const gate = await Gate.findById(gateId);
+
+        if (!gate) {
+            return res.status(404).json({ message: 'Gate not found' });
+        }
+
+        // Add job to the "Mailbox"
+        gate.pendingJob = {
+            command: command, // e.g. 'ACTIVATE'
+            payload: payload  // e.g. platformUserId
+        };
+
+        // Auto-switch to Activation mode if sending an activation job
+        if (command === 'ACTIVATE') {
+            gate.mode = 'activation';
+        }
+
+        await gate.save();
+        res.json({ message: 'Job queued successfully', gate });
+
+    } catch (error) {
+        console.error("Job Error:", error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+};

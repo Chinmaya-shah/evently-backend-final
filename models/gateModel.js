@@ -17,10 +17,20 @@ const gateSchema = new mongoose.Schema(
             default: 'validation',
         },
         status: { type: String, enum: ['online', 'offline'], default: 'offline' },
+
+        // --- NEW FIELD: REMOTE JOB QUEUE ---
+        // If this field has data, the gate knows it has work to do.
+        pendingJob: {
+            type: {
+                command: String, // e.g. 'ACTIVATE_CARD'
+                payload: String, // e.g. 'USER_ID_123'
+            },
+            default: null
+        }
     },
     { timestamps: true }
 );
 
 const Gate = mongoose.model('Gate', gateSchema);
 
-export default Gate; // Changed from module.exports
+export default Gate;
