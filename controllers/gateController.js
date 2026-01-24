@@ -40,14 +40,11 @@ export const getGateConfig = async (req, res) => {
             };
 
             // CHECK FOR JOBS
-            if (gate.pendingJob) {
+            if (gate.pendingJob && gate.pendingJob.command) {
                 console.log(`🚀 Sending Remote Job to ${gate.macAddress}: ${gate.pendingJob.command}`);
                 response.job = gate.pendingJob;
 
-                // Clear the job from DB so it doesn't run twice?
-                // Better approach: Gate must confirm completion.
-                // For V2.0 simplicity: We send it, and assume gate clears it or we clear it here.
-                // Let's clear it here to prevent loops, effectively "Popping" the queue.
+                // Clear the job from DB so it doesn't run twice
                 gate.pendingJob = null;
             }
 
@@ -110,6 +107,9 @@ export const setGateMode = async (req, res) => {
 export const sendJobToGate = async (req, res) => {
     try {
         const { gateId, command, payload } = req.body;
+
+        console.log(`[Job Request] Gate: ${gateId}, Command: ${command}, Payload: ${payload}`); // Debug Log
+
         const gate = await Gate.findById(gateId);
 
         if (!gate) {
@@ -117,9 +117,10 @@ export const sendJobToGate = async (req, res) => {
         }
 
         // Add job to the "Mailbox"
+        // FIX: Explicitly cast payload to String to prevent 'null'
         gate.pendingJob = {
-            command: command, // e.g. 'ACTIVATE'
-            payload: payload  // e.g. platformUserId
+            command: command,
+            payload: String(payload)
         };
 
         // Auto-switch to Activation mode if sending an activation job
@@ -128,6 +129,8 @@ export const sendJobToGate = async (req, res) => {
         }
 
         await gate.save();
+        console.log("Job saved to DB:", gate.pendingJob); // Confirmation Log
+
         res.json({ message: 'Job queued successfully', gate });
 
     } catch (error) {
