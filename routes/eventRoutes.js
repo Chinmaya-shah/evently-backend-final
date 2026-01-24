@@ -1,7 +1,7 @@
 // routes/eventRoutes.js
 
 import express from 'express';
-// Import all the controller functions we need for these routes
+// Import all the controller functions
 import {
     createEvent,
     getEvents,
@@ -9,7 +9,7 @@ import {
     updateEvent,
     deleteEvent,
     getEventAnalytics,
-    getMyEvents // Import the new function
+    getMyEvents
 } from '../controllers/eventController.js';
 import { protect, isOrganizer } from '../middleware/authMiddleware.js';
 
@@ -17,26 +17,29 @@ const router = express.Router();
 
 // --- ORGANIZER-SPECIFIC ROUTES ---
 
-// This new route fetches only the events created by the logged-in organizer.
-// It must come before the '/:id' route to be matched correctly.
+// 1. Get Logged-In Organizer's Events
+// Matches: GET /api/events/myevents
 router.get('/myevents', protect, isOrganizer, getMyEvents);
 
-// This route allows an organizer to get analytics for one of their events.
-router.route('/:id/analytics')
-    .get(protect, isOrganizer, getEventAnalytics);
+// 2. Get Analytics for a specific event
+// Matches: GET /api/events/analytics/:id
+// FIX: This path now matches what the Frontend is requesting
+router.get('/analytics/:id', protect, isOrganizer, getEventAnalytics);
 
 
 // --- GENERAL EVENT ROUTES ---
 
-// Routes for the main events collection
+// 3. Main Event Collection
+// Matches: GET /api/events (Public), POST /api/events (Organizer)
 router.route('/')
-    .get(getEvents) // Anyone can get the list of all events
-    .post(protect, isOrganizer, createEvent); // Only an organizer can create an event
+    .get(getEvents)
+    .post(protect, isOrganizer, createEvent);
 
-// Routes for a specific event by its ID
+// 4. Specific Event Operations (Must be last to avoid conflict)
+// Matches: GET/PUT/DELETE /api/events/:id
 router.route('/:id')
-    .get(getEventById) // Anyone can get details for a single event
-    .put(protect, isOrganizer, updateEvent) // Only an organizer can update an event
-    .delete(protect, isOrganizer, deleteEvent); // Only an organizer can delete an event
+    .get(getEventById)
+    .put(protect, isOrganizer, updateEvent)
+    .delete(protect, isOrganizer, deleteEvent);
 
 export default router;
