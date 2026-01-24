@@ -9,7 +9,6 @@ export const registerGate = async (req, res) => {
     try {
         const gateExists = await Gate.findOne({ macAddress });
         if (gateExists) {
-            // Update status to online whenever it registers/pings
             gateExists.status = 'online';
             await gateExists.save();
             return res.status(200).json({ message: 'Gate already registered.', gate: gateExists });
@@ -29,22 +28,26 @@ export const getGateConfig = async (req, res) => {
     try {
         const gate = await Gate.findOne({ macAddress: req.params.macAddress });
         if (gate) {
-            // Mark as online since it's polling
             gate.status = 'online';
 
-            // Prepare response
             const response = {
                 activeEventId: gate.activeEvent,
                 mode: gate.mode,
-                job: null // Default no job
+                job: null
             };
 
             // CHECK FOR JOBS
+            // FIX: Explicitly check for the job object and construct a clean response
             if (gate.pendingJob && gate.pendingJob.command) {
                 console.log(`🚀 Sending Remote Job to ${gate.macAddress}: ${gate.pendingJob.command}`);
-                response.job = gate.pendingJob;
 
-                // Clear the job from DB so it doesn't run twice
+                // Construct a clean object to avoid Mongoose metadata issues
+                response.job = {
+                    command: gate.pendingJob.command,
+                    payload: gate.pendingJob.payload
+                };
+
+                // Clear the job from DB
                 gate.pendingJob = null;
             }
 
@@ -54,6 +57,7 @@ export const getGateConfig = async (req, res) => {
             res.status(404).json({ message: 'Gate not found.' });
         }
     } catch (error) {
+        console.error("Config Error:", error);
         res.status(500).json({ message: 'Server Error' });
     }
 };
@@ -103,13 +107,9 @@ export const setGateMode = async (req, res) => {
     }
 };
 
-// --- NEW FUNCTION: SEND REMOTE JOB ---
 export const sendJobToGate = async (req, res) => {
     try {
         const { gateId, command, payload } = req.body;
-
-        console.log(`[Job Request] Gate: ${gateId}, Command: ${command}, Payload: ${payload}`); // Debug Log
-
         const gate = await Gate.findById(gateId);
 
         if (!gate) {
@@ -117,19 +117,17 @@ export const sendJobToGate = async (req, res) => {
         }
 
         // Add job to the "Mailbox"
-        // FIX: Explicitly cast payload to String to prevent 'null'
         gate.pendingJob = {
             command: command,
             payload: String(payload)
         };
 
-        // Auto-switch to Activation mode if sending an activation job
         if (command === 'ACTIVATE') {
             gate.mode = 'activation';
         }
 
         await gate.save();
-        console.log("Job saved to DB:", gate.pendingJob); // Confirmation Log
+        console.log(`Job queued for ${gate.macAddress}: ${command} -> ${payload}`);
 
         res.json({ message: 'Job queued successfully', gate });
 
