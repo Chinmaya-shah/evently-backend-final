@@ -1,0 +1,27 @@
+[33mac7a7f8[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmaster[m[33m, [m[1;31morigin/master[m[33m, [m[1;31morigin/HEAD[m[33m)[m Added Google Auth Servive , server,js Changed
+[33m67b50b6[m Trying to solve the gate configuration error part 3
+[33md169145[m Trying to solve the gate configuration error part 2
+[33m6fb9a62[m Trying to solve the gate configuration error
+[33m9bd32fd[m Add IoT Job Queue
+[33mf083322[m Route Changes
+[33mccd52fb[m Add Transaction Hash auditing and Analytics dashboard logic
+[33m11b2da4[m fixing the server.js file
+[33m3f57f91[m fixing the aiRoutes.js File
+[33mc5f9f1d[m fixing the server.js file
+[33ma621b73[m Force push contract artifacts to cloud
+[33ma580d99[m Ready for Render deployment
+[33mdc0a6df[m Backend changes for Ui 1.2
+[33m375eef9[m Integrated Backend Changes
+[33m610a8ef[m version 1.1 compeleted , worked succesfully
+[33m4237797[m code updated for adding the digital lock, moving to version 1.1
+[33me694c7b[m chaning to polygon network
+[33ma4040ca[m Succesfully made the 1st version of the system
+[33mbb7d75b[m Succesfully tested the NFC alloting
+[33m6110ddf[m Made the Super Admin Role and UI
+[33mb7bfa16[m Backend Changes
+[33m1df4132[m Backend Changes
+[33m60b4501[m Feat: Implement full Organizer CRUD and complete V1.0 logic
+[33mc69ba2c[m Fix: Corrected login logic in authController to resolve race condition
+[33mb8520aa[m Feat: Implement full sign-up flow and correct login logic
+[33m5c89593[m Feat: Add group booking invitation logic and endpoints
+[33mcb33ec2[m Initial clean commit of backend project

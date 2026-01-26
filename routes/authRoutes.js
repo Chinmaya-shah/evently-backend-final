@@ -1,36 +1,31 @@
 // routes/authRoutes.js
+    import express from 'express';
+    import {
+      registerUser,
+      loginUser,
+      getUserProfile,
+      submitKyc,
+      findUserForAdmin,
+      generateActivationCode,
+      getIdForKiosk,
+      confirmActivation,
+      googleAuth
+    } from '../controllers/authController.js';
+    import { protect, isAdmin } from '../middleware/authMiddleware.js';
 
-import express from 'express';
-import {
-  registerUser,
-  loginUser,
-  getUserProfile,
-  submitKyc,
-  findUserForAdmin,
-  generateActivationCode, // <-- Renamed import
-  getIdForKiosk,
-  confirmActivation
-} from '../controllers/authController.js';
-import { protect, isAdmin } from '../middleware/authMiddleware.js';
+    const router = express.Router();
 
-const router = express.Router();
+    router.post('/register', registerUser);
+    router.post('/login', loginUser);
+    router.post('/google', googleAuth); // <--- NEW ROUTE
 
-// Public routes for registration and login
-router.post('/register', registerUser);
-router.post('/login', loginUser);
+    router.get('/profile', protect, getUserProfile);
+    router.post('/submit-kyc', protect, submitKyc);
 
-// Private routes for authenticated users
-router.get('/profile', protect, getUserProfile);
-router.post('/submit-kyc', protect, submitKyc);
+    router.get('/admin/find', protect, isAdmin, findUserForAdmin);
+    router.post('/generate-otp', protect, isAdmin, generateActivationCode);
 
-// Admin-only routes
-router.get('/admin/find', protect, isAdmin, findUserForAdmin);
+    router.post('/kiosk/get-id', getIdForKiosk);
+    router.post('/kiosk/confirm-activation', confirmActivation);
 
-// --- CHANGED ROUTE NAME TO MATCH FRONTEND ---
-router.post('/generate-otp', protect, isAdmin, generateActivationCode);
-
-// Public routes for the IoT Kiosk to communicate with
-router.post('/kiosk/get-id', getIdForKiosk);
-router.post('/kiosk/confirm-activation', confirmActivation);
-
-export default router;
+    export default router;
