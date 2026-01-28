@@ -13,7 +13,6 @@ export const createEvent = async (req, res) => {
         const { name, description, eventImage, date, location, ticketPrice, capacity, status, category } = req.body;
 
         // --- VALIDATION LOGIC ---
-        // If user wants to PUBLISH, we strictly check all fields
         if (status === 'Published') {
             if (!description || !date || !location || !capacity || !eventImage) {
                 return res.status(400).json({
@@ -21,7 +20,6 @@ export const createEvent = async (req, res) => {
                 });
             }
         }
-        // If Draft, we only need the Name (checked by Mongoose)
 
         let finalImageUrl = '';
         if (eventImage) {
@@ -44,7 +42,7 @@ export const createEvent = async (req, res) => {
             location,
             ticketPrice: Number(ticketPrice) || 0,
             capacity: Number(capacity),
-            organizer: req.user._id,
+            organizer: req.user._id, // Linked to the logged-in user
             status: status || 'Draft',
             category: category || 'General'
         });
@@ -72,12 +70,11 @@ export const updateEvent = async (req, res) => {
             return res.status(404).json({ message: 'Event not found' });
         }
 
+        // Strict Check: Only the organizer who created it can update it
         if (event.organizer.toString() !== req.user._id.toString()) {
             return res.status(403).json({ message: 'User not authorized to update this event' });
         }
 
-        // --- VALIDATION LOGIC FOR UPDATE ---
-        // If switching to Published, check fields
         if (req.body.status === 'Published') {
              const hasDesc = req.body.description || event.description;
              const hasDate = req.body.date || event.date;
@@ -125,7 +122,7 @@ export const updateEvent = async (req, res) => {
     }
 };
 
-// @desc    Get all events (PUBLIC FEED)
+// @desc    Get all events (Public Feed - Only Published)
 // @route   GET /api/events
 // @access  Public
 export const getEvents = async (req, res) => {
@@ -160,6 +157,7 @@ export const deleteEvent = async (req, res) => {
     try {
         const event = await Event.findById(req.params.id);
         if (!event) { return res.status(404).json({ message: 'Event not found' }); }
+
         if (event.organizer.toString() !== req.user._id.toString()) {
             return res.status(403).json({ message: 'User not authorized to delete this event' });
         }
@@ -173,20 +171,19 @@ export const deleteEvent = async (req, res) => {
     }
 };
 
-// @desc    Get analytics for a specific event
+// @desc    Get analytics
 // @route   GET /api/events/analytics/:id
 // @access  Private/Owner
 export const getEventAnalytics = async (req, res) => {
   try {
     const event = await Event.findById(req.params.id);
     if (!event) { return res.status(404).json({ message: 'Event not found' }); }
+
     if (event.organizer.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: 'User not authorized to view analytics for this event' });
     }
 
     const totalRevenue = event.ticketsSold * event.ticketPrice;
-
-    // --- UPDATED: Fetch full ticket details including Transaction Hash ---
     const tickets = await Ticket.find({ event: req.params.id })
         .populate('attendee', 'name email platformUserId')
         .sort({ createdAt: -1 });
@@ -196,13 +193,12 @@ export const getEventAnalytics = async (req, res) => {
       ticketsSold: event.ticketsSold,
       capacity: event.capacity,
       totalRevenue: totalRevenue,
-      // Map to a clean structure for the frontend audit table
       attendees: tickets.map(t => ({
           name: t.attendee?.name || 'Unknown',
           email: t.attendee?.email || 'N/A',
           platformId: t.attendee?.platformUserId || 'N/A',
           ticketId: t.nftTokenId || 'Pending',
-          txHash: t.mintingTxHash || 'N/A', // <--- THE PROOF FIELD
+          txHash: t.mintingTxHash || 'N/A',
           purchaseDate: t.createdAt,
           status: t.status
       })),
@@ -217,9 +213,15 @@ export const getEventAnalytics = async (req, res) => {
 // @access  Private/Organizer
 export const getMyEvents = async (req, res) => {
     try {
+        // --- DEBUG LOG ---
+        // This will print to your backend terminal so you can verify WHO is asking.
+        console.log(`🔍 Fetching MyEvents for User ID: ${req.user._id}`);
+
+        // Strict Filter: Only events where organizer matches the logged-in user
         const events = await Event.find({ organizer: req.user._id });
         res.json(events);
     } catch (error) {
+        console.error("GetMyEvents Error:", error);
         res.status(500).json({ message: 'Server Error' });
     }
 };
