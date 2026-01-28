@@ -12,11 +12,11 @@ export const createEvent = async (req, res) => {
     try {
         const { name, description, eventImage, date, location, ticketPrice, capacity, status, category } = req.body;
 
-        // --- VALIDATION LOGIC ---
+        // Validation for Published events
         if (status === 'Published') {
             if (!description || !date || !location || !capacity || !eventImage) {
                 return res.status(400).json({
-                    message: 'Cannot publish incomplete event. Please fill all fields (Image, Date, Location, Capacity) or save as Draft.'
+                    message: 'Cannot publish incomplete event. Please fill all fields.'
                 });
             }
         }
@@ -42,15 +42,13 @@ export const createEvent = async (req, res) => {
             location,
             ticketPrice: Number(ticketPrice) || 0,
             capacity: Number(capacity),
-            organizer: req.user._id, // Linked to the logged-in user
+            organizer: req.user._id, // <--- CRITICAL: Linked to logged-in user
             status: status || 'Draft',
             category: category || 'General'
         });
 
         const createdEvent = await event.save();
-
-        const message = `You created a new event: "${createdEvent.name}"`;
-        await logActivity(req.user._id, message, 'event', `/organizer/my-events/edit/${createdEvent._id}`);
+        await logActivity(req.user._id, `Created event: ${createdEvent.name}`, 'event', `/organizer/my-events/edit/${createdEvent._id}`);
 
         res.status(201).json(createdEvent);
     } catch (error) {
@@ -66,13 +64,11 @@ export const updateEvent = async (req, res) => {
     try {
         const event = await Event.findById(req.params.id);
 
-        if (!event) {
-            return res.status(404).json({ message: 'Event not found' });
-        }
+        if (!event) return res.status(404).json({ message: 'Event not found' });
 
         // Strict Check: Only the organizer who created it can update it
         if (event.organizer.toString() !== req.user._id.toString()) {
-            return res.status(403).json({ message: 'User not authorized to update this event' });
+            return res.status(403).json({ message: 'Unauthorized: You do not own this event' });
         }
 
         if (req.body.status === 'Published') {
@@ -83,9 +79,7 @@ export const updateEvent = async (req, res) => {
              const hasImg = req.body.eventImage || event.eventImage;
 
              if (!hasDesc || !hasDate || !hasLoc || !hasCap || !hasImg) {
-                return res.status(400).json({
-                    message: 'Cannot publish incomplete event. Please fill all fields.'
-                });
+                return res.status(400).json({ message: 'Cannot publish incomplete event.' });
              }
         }
 
@@ -93,9 +87,7 @@ export const updateEvent = async (req, res) => {
         const newImage = req.body.eventImage;
 
         if (newImage && newImage.startsWith('data:image')) {
-            const uploadedResponse = await cloudinary.uploader.upload(newImage, {
-                folder: 'evently_events',
-            });
+            const uploadedResponse = await cloudinary.uploader.upload(newImage, { folder: 'evently_events' });
             finalImageUrl = uploadedResponse.secure_url;
         }
 
@@ -106,27 +98,22 @@ export const updateEvent = async (req, res) => {
         event.ticketPrice = req.body.ticketPrice === undefined ? event.ticketPrice : req.body.ticketPrice;
         event.capacity = req.body.capacity || event.capacity;
         event.category = req.body.category || event.category;
-
-        if (req.body.status) {
-            event.status = req.body.status;
-        }
-
+        if (req.body.status) event.status = req.body.status;
         event.eventImage = finalImageUrl;
 
         const updatedEvent = await event.save();
         res.json(updatedEvent);
-
     } catch (error) {
-        console.error("Event Update Error:", error);
-        res.status(500).json({ message: 'Server error while updating event.' });
+        res.status(500).json({ message: 'Server Error' });
     }
 };
 
-// @desc    Get all events (Public Feed - Only Published)
+// @desc    Get all events (Public Feed)
 // @route   GET /api/events
 // @access  Public
 export const getEvents = async (req, res) => {
     try {
+        // Public sees only PUBLISHED events
         const events = await Event.find({ status: 'Published' }).populate('organizer', 'name');
         res.json(events);
     } catch (error) {
@@ -140,11 +127,8 @@ export const getEvents = async (req, res) => {
 export const getEventById = async (req, res) => {
     try {
         const event = await Event.findById(req.params.id).populate('organizer', 'name');
-        if (event) {
-            res.json(event);
-        } else {
-            res.status(404).json({ message: 'Event not found' });
-        }
+        if (event) res.json(event);
+        else res.status(404).json({ message: 'Event not found' });
     } catch (error) {
         res.status(500).json({ message: 'Server Error' });
     }
@@ -156,31 +140,30 @@ export const getEventById = async (req, res) => {
 export const deleteEvent = async (req, res) => {
     try {
         const event = await Event.findById(req.params.id);
-        if (!event) { return res.status(404).json({ message: 'Event not found' }); }
+        if (!event) return res.status(404).json({ message: 'Event not found' });
 
         if (event.organizer.toString() !== req.user._id.toString()) {
-            return res.status(403).json({ message: 'User not authorized to delete this event' });
+            return res.status(403).json({ message: 'Unauthorized' });
         }
         if (event.ticketsSold > 0) {
-            return res.status(400).json({ message: 'Cannot delete an event for which tickets have already been sold.' });
+            return res.status(400).json({ message: 'Cannot delete event with sold tickets.' });
         }
         await event.deleteOne();
-        res.json({ message: 'Event removed successfully' });
+        res.json({ message: 'Event removed' });
     } catch (error) {
-        res.status(500).json({ message: 'Server error while deleting event.' });
+        res.status(500).json({ message: 'Server Error' });
     }
 };
 
 // @desc    Get analytics
 // @route   GET /api/events/analytics/:id
-// @access  Private/Owner
 export const getEventAnalytics = async (req, res) => {
   try {
     const event = await Event.findById(req.params.id);
-    if (!event) { return res.status(404).json({ message: 'Event not found' }); }
+    if (!event) return res.status(404).json({ message: 'Event not found' });
 
     if (event.organizer.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: 'User not authorized to view analytics for this event' });
+      return res.status(403).json({ message: 'Unauthorized' });
     }
 
     const totalRevenue = event.ticketsSold * event.ticketPrice;
@@ -204,7 +187,7 @@ export const getEventAnalytics = async (req, res) => {
       })),
     });
   } catch (error) {
-    res.status(500).json({ message: 'Server error while fetching analytics.' });
+    res.status(500).json({ message: 'Server Error' });
   }
 };
 
@@ -214,11 +197,13 @@ export const getEventAnalytics = async (req, res) => {
 export const getMyEvents = async (req, res) => {
     try {
         // --- DEBUG LOG ---
-        // This will print to your backend terminal so you can verify WHO is asking.
-        console.log(`🔍 Fetching MyEvents for User ID: ${req.user._id}`);
+        // Verify in Render logs that this ID changes when you switch users
+        console.log(`🔍 Fetching MyEvents for Organizer ID: ${req.user._id}`);
 
-        // Strict Filter: Only events where organizer matches the logged-in user
+        // STRICT FILTER: Only return events where organizer == logged in user
         const events = await Event.find({ organizer: req.user._id });
+
+        console.log(`   Found ${events.length} events for this organizer.`);
         res.json(events);
     } catch (error) {
         console.error("GetMyEvents Error:", error);
