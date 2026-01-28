@@ -10,13 +10,15 @@ export const registerGate = async (req, res) => {
         const gateExists = await Gate.findOne({ macAddress });
         if (gateExists) {
             gateExists.status = 'online';
+            gateExists.lastSeen = new Date();
             await gateExists.save();
             return res.status(200).json({ message: 'Gate already registered.', gate: gateExists });
         }
         const newGate = await Gate.create({
             macAddress,
             name: `New Gate - ${macAddress.slice(-5).replace(/:/g, '')}`,
-            status: 'online'
+            status: 'online',
+            lastSeen: new Date()
         });
         res.status(201).json({ message: 'Gate registered successfully.', gate: newGate });
     } catch (error) {
@@ -28,7 +30,9 @@ export const getGateConfig = async (req, res) => {
     try {
         const gate = await Gate.findOne({ macAddress: req.params.macAddress });
         if (gate) {
+            // --- HEARTBEAT LOGIC ---
             gate.status = 'online';
+            gate.lastSeen = new Date();
 
             const response = {
                 activeEventId: gate.activeEvent,
@@ -36,18 +40,12 @@ export const getGateConfig = async (req, res) => {
                 job: null
             };
 
-            // CHECK FOR JOBS
-            // FIX: Explicitly check for the job object and construct a clean response
             if (gate.pendingJob && gate.pendingJob.command) {
                 console.log(`🚀 Sending Remote Job to ${gate.macAddress}: ${gate.pendingJob.command}`);
-
-                // Construct a clean object to avoid Mongoose metadata issues
                 response.job = {
                     command: gate.pendingJob.command,
                     payload: gate.pendingJob.payload
                 };
-
-                // Clear the job from DB
                 gate.pendingJob = null;
             }
 
@@ -64,10 +62,60 @@ export const getGateConfig = async (req, res) => {
 
 export const getAllGates = async (req, res) => {
     try {
+        // --- OFFLINE CHECK LOGIC ---
+        // Before returning the list, check who hasn't been seen in 20 seconds
         const gates = await Gate.find({}).populate('activeEvent', 'name');
-        res.json(gates);
+        const now = new Date();
+
+        const updatedGates = await Promise.all(gates.map(async (gate) => {
+            // If lastSeen was more than 20 seconds ago, mark offline
+            if (gate.lastSeen && (now.getTime() - new Date(gate.lastSeen).getTime() > 20000)) {
+                if (gate.status !== 'offline') {
+                    gate.status = 'offline';
+                    await gate.save();
+                }
+            }
+            return gate;
+        }));
+
+        // Sort: Online first
+        updatedGates.sort((a, b) => (a.status === 'online' ? -1 : 1));
+
+        res.json(updatedGates);
     } catch (error) {
         res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+// --- NEW FUNCTION: INGEST REMOTE LOGS ---
+export const logGateEvent = async (req, res) => {
+    try {
+        const { macAddress, message, type } = req.body;
+        const gate = await Gate.findOne({ macAddress });
+
+        if (gate) {
+            // Add new log to the beginning of the array
+            gate.logs.unshift({
+                message,
+                type: type || 'info',
+                timestamp: new Date()
+            });
+
+            // Keep only the last 50 logs to save DB space
+            if (gate.logs.length > 50) {
+                gate.logs = gate.logs.slice(0, 50);
+            }
+
+            gate.lastSeen = new Date(); // Log activity counts as heartbeat
+            gate.status = 'online';
+
+            await gate.save();
+            res.json({ success: true });
+        } else {
+            res.status(404).json({ message: "Gate not found" });
+        }
+    } catch (error) {
+        res.status(500).json({ message: 'Log Error' });
     }
 };
 
@@ -116,7 +164,6 @@ export const sendJobToGate = async (req, res) => {
             return res.status(404).json({ message: 'Gate not found' });
         }
 
-        // Add job to the "Mailbox"
         gate.pendingJob = {
             command: command,
             payload: String(payload)

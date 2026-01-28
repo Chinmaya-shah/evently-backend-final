@@ -18,12 +18,21 @@ const gateSchema = new mongoose.Schema(
         },
         status: { type: String, enum: ['online', 'offline'], default: 'offline' },
 
-        // --- NEW FIELD: REMOTE JOB QUEUE ---
-        // If this field has data, the gate knows it has work to do.
+        // --- NEW FIELD: HEARTBEAT ---
+        lastSeen: { type: Date, default: Date.now },
+
+        // --- NEW FIELD: REMOTE LOGS ---
+        // Stores the last 50 logs from the device so Admin can see history
+        logs: [{
+            message: String,
+            type: { type: String, enum: ['info', 'success', 'error'], default: 'info' },
+            timestamp: { type: Date, default: Date.now }
+        }],
+
         pendingJob: {
             type: {
-                command: String, // e.g. 'ACTIVATE_CARD'
-                payload: String, // e.g. 'USER_ID_123'
+                command: String,
+                payload: String,
             },
             default: null
         }
