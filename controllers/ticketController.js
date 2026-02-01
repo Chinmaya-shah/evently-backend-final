@@ -1,5 +1,3 @@
-// controllers/ticketController.js
-
 import Ticket from '../models/ticketModel.js';
 import Event from '../models/eventModel.js';
 import User from '../models/userModel.js';
@@ -23,7 +21,7 @@ export const createDevTicket = async (req, res) => {
             attendee: user._id,
             purchasePrice: event.ticketPrice,
             nftTokenId: 'dev-token-' + Date.now(),
-            mintingTxHash: 'dev-hash-' + Date.now(), // Fake hash for Dev
+            mintingTxHash: 'dev-hash-' + Date.now(),
             status: 'confirmed',
         });
         res.status(201).json({ message: "DEV TICKET CREATED", ticket: newTicket });
@@ -47,17 +45,16 @@ export const purchaseTicket = async (req, res) => {
 
         const attendeeWalletAddress = '0x639958B29d0c7F3bA1Ccc1aeaBAd1e60e783b5F8';
 
-        // --- 1. MINT & GET HASH ---
-        // Destructure to get both values
+        // 1. MINT
         const { tokenId, txHash } = await mintTicket(attendeeWalletAddress);
 
-        // --- 2. CREATE TICKET WITH HASH ---
+        // 2. CREATE TICKET
         const ticket = await Ticket.create({
             event: eventId,
             attendee: attendee._id,
             purchasePrice: event.ticketPrice,
             nftTokenId: tokenId,
-            mintingTxHash: txHash, // <--- SAVING THE RECEIPT
+            mintingTxHash: txHash,
             status: 'confirmed',
         });
 
@@ -67,7 +64,17 @@ export const purchaseTicket = async (req, res) => {
         const message = `A ticket for "${event.name}" was purchased by ${attendee.name}.`;
         await logActivity(event.organizer, message, 'ticket');
 
+        // 3. SEND EMAIL
         sendPurchaseConfirmationEmail(attendee, ticket, event);
+
+        // 4. --- NEW: SEND IN-APP NOTIFICATION ---
+        await createInAppNotification(
+            attendee._id,
+            `You successfully purchased a ticket for ${event.name}!`,
+            'ticket',
+            '/events' // Redirect to My Tickets
+        );
+
         res.status(201).json({ message: 'Ticket purchased and minted successfully!', ticket });
     } catch (error) {
         console.error('Ticket purchase error:', error);

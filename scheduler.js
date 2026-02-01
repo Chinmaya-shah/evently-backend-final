@@ -1,8 +1,7 @@
-// scheduler.js
 import cron from 'node-cron';
 import Event from './models/eventModel.js';
 import Ticket from './models/ticketModel.js';
-import { sendEventReminderEmail } from './services/notificationService.js';
+import { sendEventReminderEmail, createInAppNotification } from './services/notificationService.js'; // <--- Import Notification Service
 
 const checkAndSendReminders = async () => {
   console.log('Scheduler running: Checking for upcoming events...');
@@ -34,7 +33,16 @@ const checkAndSendReminders = async () => {
       // Send a reminder to each attendee
       for (const ticket of tickets) {
         if (ticket.attendee) {
+          // 1. Send Email
           await sendEventReminderEmail(ticket.attendee, event);
+
+          // 2. --- NEW: Create In-App Notification ---
+          await createInAppNotification(
+              ticket.attendee._id,
+              `Reminder: "${event.name}" starts in 24 hours!`,
+              'event_update',
+              `/events` // Link to My Tickets
+          );
         }
       }
     }
