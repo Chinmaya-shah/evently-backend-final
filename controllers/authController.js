@@ -2,6 +2,7 @@ import User from '../models/userModel.js';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
+import { v2 as cloudinary } from 'cloudinary'; // <--- 1. Import Cloudinary
 
 const activationTokens = new Map();
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -41,7 +42,6 @@ export const loginUser = async (req, res) => {
     } catch (error) { res.status(500).json({ message: 'Server Error' }); }
 };
 
-// --- UPDATED PROFILE FETCHER ---
 export const getUserProfile = async (req, res) => {
     const user = await User.findById(req.user._id);
     if (user) {
@@ -64,18 +64,39 @@ export const getUserProfile = async (req, res) => {
     } else { res.status(404).json({ message: 'User not found' }); }
 };
 
-// --- NEW: UPDATE PROFILE LOGIC ---
+// --- UPDATED: HANDLE IMAGE UPLOAD ---
 export const updateUserProfile = async (req, res) => {
     const user = await User.findById(req.user._id);
 
     if (user) {
         user.name = req.body.name || user.name;
         user.email = req.body.email || user.email;
-        user.photo = req.body.photo || user.photo;
         user.bio = req.body.bio || user.bio;
         user.website = req.body.website || user.website;
         user.twitter = req.body.twitter || user.twitter;
         user.upiId = req.body.upiId || user.upiId;
+
+        // --- CLOUDINARY LOGIC START ---
+        if (req.body.photo) {
+            const imageStr = req.body.photo;
+            // Only upload if it's a Base64 string (starts with data:image)
+            if (imageStr.startsWith('data:image')) {
+                try {
+                    const uploadedResponse = await cloudinary.uploader.upload(imageStr, {
+                        folder: 'evently_profiles',
+                        resource_type: 'image',
+                    });
+                    user.photo = uploadedResponse.secure_url; // Save the URL
+                } catch (err) {
+                    console.error("Cloudinary Upload Error:", err);
+                    // Don't crash, just keep old photo or ignore
+                }
+            } else {
+                // It's already a URL (maybe from Google or previous save)
+                user.photo = imageStr;
+            }
+        }
+        // --- CLOUDINARY LOGIC END ---
 
         if (req.body.password) {
             user.password = req.body.password;
