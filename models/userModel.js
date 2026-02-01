@@ -1,4 +1,3 @@
-// models/userModel.js
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import { nanoid } from 'nanoid';
@@ -16,14 +15,21 @@ const userSchema = new mongoose.Schema(
         },
         platformUserId: { type: String, required: true, unique: true, default: () => nanoid(16) },
 
-        // --- THIS IS THE RESTORED KYC OBJECT ---
+        // --- NEW PROFILE FIELDS ---
+        photo: { type: String, default: '' },
+        bio: { type: String, default: '' },
+        website: { type: String, default: '' },
+        twitter: { type: String, default: '' },
+        upiId: { type: String, default: '' },
+
+        // --- KYC ---
         kyc: {
             fullName: { type: String, default: '' },
             address: { type: String, default: '' },
             governmentId: { type: String, default: '' },
         },
 
-        // --- THESE ARE OUR NEW SECURITY FIELDS ---
+        // --- SECURITY ---
         activeCardUID: {
             type: String,
             unique: true,

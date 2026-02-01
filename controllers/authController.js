@@ -1,4 +1,3 @@
-// controllers/authController.js
 import User from '../models/userModel.js';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
@@ -36,12 +35,67 @@ export const loginUser = async (req, res) => {
             res.json({
                 _id: user._id, name: user.name, email: user.email, role: user.role,
                 platformUserId: user.platformUserId, token: generateToken(user._id, user.role),
+                photo: user.photo
             });
         } else { res.status(401).json({ message: 'Invalid email or password' }); }
     } catch (error) { res.status(500).json({ message: 'Server Error' }); }
 };
 
-// --- UPDATED GOOGLE AUTH ---
+// --- UPDATED PROFILE FETCHER ---
+export const getUserProfile = async (req, res) => {
+    const user = await User.findById(req.user._id);
+    if (user) {
+        res.json({
+            _id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            photo: user.photo,
+            bio: user.bio,
+            website: user.website,
+            twitter: user.twitter,
+            upiId: user.upiId,
+            platformUserId: user.platformUserId,
+            isVerified: user.isVerified,
+            isCardActivated: user.isCardActivated,
+            activeCardUID: user.activeCardUID,
+            kyc: user.kyc
+        });
+    } else { res.status(404).json({ message: 'User not found' }); }
+};
+
+// --- NEW: UPDATE PROFILE LOGIC ---
+export const updateUserProfile = async (req, res) => {
+    const user = await User.findById(req.user._id);
+
+    if (user) {
+        user.name = req.body.name || user.name;
+        user.email = req.body.email || user.email;
+        user.photo = req.body.photo || user.photo;
+        user.bio = req.body.bio || user.bio;
+        user.website = req.body.website || user.website;
+        user.twitter = req.body.twitter || user.twitter;
+        user.upiId = req.body.upiId || user.upiId;
+
+        if (req.body.password) {
+            user.password = req.body.password;
+        }
+
+        const updatedUser = await user.save();
+
+        res.json({
+            _id: updatedUser._id,
+            name: updatedUser.name,
+            email: updatedUser.email,
+            role: updatedUser.role,
+            photo: updatedUser.photo,
+            token: generateToken(updatedUser._id, updatedUser.role),
+        });
+    } else {
+        res.status(404).json({ message: 'User not found' });
+    }
+};
+
 export const googleAuth = async (req, res) => {
     const { idToken, role } = req.body;
     if (!idToken) { return res.status(400).json({ message: "Google ID Token is required" }); }
@@ -52,29 +106,26 @@ export const googleAuth = async (req, res) => {
             audience: process.env.GOOGLE_CLIENT_ID,
         });
         const payload = ticket.getPayload();
-        const { email, name, picture, sub } = payload; // Added picture
+        const { email, name, picture, sub } = payload;
 
         let user = await User.findOne({ email });
 
         if (user) {
-            // --- CRITICAL FIX: ROLE UPGRADE ---
-            // If user is currently 'Attendee' but logging in via Organizer flow, upgrade them.
             if (role === 'Organizer' && user.role === 'Attendee') {
                 user.role = 'Organizer';
                 await user.save();
-                console.log(`User ${email} upgraded to Organizer`);
             }
-
             res.json({
                 _id: user._id, name: user.name, email: user.email, role: user.role,
                 platformUserId: user.platformUserId, token: generateToken(user._id, user.role),
-                photo: picture
+                photo: user.photo || picture
             });
         } else {
             const randomPassword = crypto.randomBytes(16).toString('hex');
             user = await User.create({
                 name: name, email: email, password: randomPassword,
                 role: role || 'Attendee', googleId: sub, kycStatus: 'pending',
+                photo: picture
             });
             res.status(201).json({
                 _id: user._id, name: user.name, email: user.email, role: user.role,
@@ -86,17 +137,6 @@ export const googleAuth = async (req, res) => {
         console.error("Google Auth Error:", error);
         res.status(401).json({ message: "Google Token Verification Failed" });
     }
-};
-
-export const getUserProfile = async (req, res) => {
-    const user = await User.findById(req.user._id);
-    if (user) {
-        res.json({
-            _id: user._id, name: user.name, email: user.email, role: user.role,
-            platformUserId: user.platformUserId, isVerified: user.isVerified,
-            isCardActivated: user.isCardActivated, activeCardUID: user.activeCardUID
-        });
-    } else { res.status(404).json({ message: 'User not found' }); }
 };
 
 export const submitKyc = async (req, res) => {
@@ -133,10 +173,7 @@ export const generateActivationCode = async (req, res) => {
     try {
         const user = await User.findById(req.body.userId);
         if (!user) return res.status(404).json({ message: 'User not found' });
-
-        // Check verification (Support both legacy isVerified and new kycStatus)
         const isVerified = user.isVerified || user.kycStatus === 'verified';
-
         if (!isVerified) return res.status(400).json({ message: 'User must be KYC verified.' });
         if (user.isCardActivated) return res.status(400).json({ message: 'User already has an active card.' });
 

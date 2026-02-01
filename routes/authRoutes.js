@@ -1,31 +1,35 @@
-// routes/authRoutes.js
-    import express from 'express';
-    import {
-      registerUser,
-      loginUser,
-      getUserProfile,
-      submitKyc,
-      findUserForAdmin,
-      generateActivationCode,
-      getIdForKiosk,
-      confirmActivation,
-      googleAuth
-    } from '../controllers/authController.js';
-    import { protect, isAdmin } from '../middleware/authMiddleware.js';
+import express from 'express';
+import {
+  registerUser,
+  loginUser,
+  getUserProfile,
+  updateUserProfile, // <-- Import the new function
+  submitKyc,
+  findUserForAdmin,
+  generateActivationCode,
+  getIdForKiosk,
+  confirmActivation,
+  googleAuth
+} from '../controllers/authController.js';
+import { protect, isAdmin } from '../middleware/authMiddleware.js';
 
-    const router = express.Router();
+const router = express.Router();
 
-    router.post('/register', registerUser);
-    router.post('/login', loginUser);
-    router.post('/google', googleAuth); // <--- NEW ROUTE
+router.post('/register', registerUser);
+router.post('/login', loginUser);
+router.post('/google', googleAuth);
 
-    router.get('/profile', protect, getUserProfile);
-    router.post('/submit-kyc', protect, submitKyc);
+// --- CRITICAL FIX: Add .put() for updates ---
+router.route('/profile')
+    .get(protect, getUserProfile)
+    .put(protect, updateUserProfile);
 
-    router.get('/admin/find', protect, isAdmin, findUserForAdmin);
-    router.post('/generate-otp', protect, isAdmin, generateActivationCode);
+router.post('/submit-kyc', protect, submitKyc);
 
-    router.post('/kiosk/get-id', getIdForKiosk);
-    router.post('/kiosk/confirm-activation', confirmActivation);
+router.get('/admin/find', protect, isAdmin, findUserForAdmin);
+router.post('/generate-otp', protect, isAdmin, generateActivationCode);
 
-    export default router;
+router.post('/kiosk/get-id', getIdForKiosk);
+router.post('/kiosk/confirm-activation', confirmActivation);
+
+export default router;
